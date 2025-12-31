@@ -1,0 +1,304 @@
+% Gemini theme
+% https://github.com/anishathalye/gemini
+% !TeX program = xelatex
+
+\documentclass[final]{beamer}
+
+% ====================
+% Packages
+% ====================
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[size=custom,width=120,height=72,scale=0.8]{beamerposter}
+\makeatletter
+\def\input@path{{themes/}{themes/gemini/}}
+\makeatother
+\usetheme{gemini}
+\usecolortheme{gemini}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.14}
+\usepackage{anyfontsize}
+\usepackage{amsmath, amssymb}
+\usepackage{calc}
+\usepackage{xcolor}
+
+% ====================
+% Lengths
+% ====================
+
+\newlength{\sepwidth}
+\newlength{\colwidth}
+\setlength{\sepwidth}{0.025\paperwidth}
+\setlength{\colwidth}{0.3\paperwidth}
+
+\newcommand{\separatorcolumn}{\begin{column}{\sepwidth}\end{column}}
+
+% ====================
+% Title
+% ====================
+
+\title{\sffamily\bfseries\Huge
+Catch-A-Waveform:\\
+Single-Sample Audio Generation with Multi-Scale GANs}
+
+\author{\sffamily\textcolor{white}{\LARGE\bfseries
+Etienne Maugars \and Tristan Beruard 
+}}
+
+% ====================
+% Footer
+% ====================
+
+\footercontent{
+  Deep Learning Project \hfill
+  Research Poster \hfill
+  2025
+}
+
+% ====================
+% Body
+% ====================
+
+\begin{document}
+
+\begin{frame}[t]
+\begin{columns}[t]
+\separatorcolumn
+
+% ============================================================
+% COLUMN 1 — Problem, Method, Intuition
+% ============================================================
+\begin{column}{\colwidth}
+
+\begin{block}{1. Problem \& Motivation}
+
+\textbf{Goal.}  
+Can we train an audio generative model using \emph{a single short waveform} (10–30s), without pretraining?
+
+\medskip
+\textbf{Challenges specific to audio}
+\begin{itemize}
+    \item Extremely high temporal resolution (16k–44k samples/s)
+    \item Long-range temporal structure (speech, rhythm)
+    \item Rich frequency content at multiple scales
+\end{itemize}
+
+\medskip
+\textbf{Limitations of existing approaches}
+\begin{itemize}
+    \item Autoregressive models require large datasets
+    \item Spectrogram-based GANs struggle with phase
+    \item Patch-based synthesis lacks global coherence
+\end{itemize}
+
+\medskip
+\textbf{Catch-A-Waveform (CAW)} proposes a \textbf{single-sample, multi-scale GAN}
+that learns audio structure progressively from coarse to fine resolutions.
+
+\end{block}
+
+\begin{block}{2. Method Overview}
+
+CAW represents an audio signal through a \textbf{pyramid of temporal resolutions}.
+Each scale models a distinct frequency band.
+
+\medskip
+\textbf{Multi-scale formulation}
+\[
+x = \sum_{i=0}^{N} x_i,
+\quad
+x_i = \text{upsample}(G_i(z_i))
+\]
+
+\medskip
+\begin{itemize}
+    \item $x_0$ captures low-frequency, long-range structure
+    \item Higher scales progressively add high-frequency details
+    \item Each generator is trained adversarially on temporal patches
+\end{itemize}
+
+\medskip
+Training proceeds \textbf{coarse-to-fine}: once trained, lower scales are frozen.
+
+\end{block}
+
+\begin{alertblock}{3. Key Intuition}
+
+\textbf{Frequency = scale.}
+
+\medskip
+\begin{itemize}
+    \item Downsampling isolates low-frequency content
+    \item Each scale learns \emph{local stationarity} in its band
+    \item Global structure emerges from the coarsest scale
+\end{itemize}
+
+\medskip
+This design allows CAW to:
+\begin{itemize}
+    \item Generate arbitrarily long signals
+    \item Recombine patterns across time and frequency
+    \item Avoid simple copy-paste synthesis
+\end{itemize}
+
+\end{alertblock}
+
+\end{column}
+
+\separatorcolumn
+
+% ============================================================
+% COLUMN 2 — Experiments & Analysis
+% ============================================================
+\begin{column}{\colwidth}
+
+\begin{block}{4. Toy Experiments: Understanding the Pyramid}
+
+\textbf{Experiment A — Band isolation.}  
+We generate signals while activating only one scale at a time.
+
+\medskip
+\begin{itemize}
+    \item Coarse scale: global rhythm and envelope
+    \item Fine scales: transients, noise, articulation
+\end{itemize}
+
+\medskip
+\textbf{Takeaway.}  
+Each scale contributes a \emph{distinct temporal pattern}, validating the frequency-based decomposition.
+
+\medskip
+\centering
+\fbox{\parbox{0.8\linewidth}{Spectrogram placeholders}}
+
+\end{block}
+
+\begin{block}{5. Original Diagnostic Experiments}
+
+\textbf{Nearest-neighbor patch analysis.}  
+For each generated window, we compute its closest match in the training waveform.
+
+\medskip
+\begin{itemize}
+    \item CAW produces novel combinations of familiar patches
+    \item Significantly less memorization than naive cut-and-paste
+\end{itemize}
+
+\medskip
+\textbf{Cross-scale temporal alignment.}  
+Low- and high-frequency bands often correspond to \emph{different temporal locations}
+in the training signal.
+
+\medskip
+\centering
+\fbox{\parbox{0.75\linewidth}{Patch similarity / alignment plots}}
+
+\end{block}
+
+\begin{block}{6. Data Efficiency Study}
+
+\textbf{How many seconds are enough?}
+
+\medskip
+We train CAW with varying input durations:
+\[
+\{2s,\;5s,\;10s,\;20s,\;40s\}
+\]
+
+\medskip
+\begin{itemize}
+    \item Short signals $\rightarrow$ overfitting, noise artifacts
+    \item Intermediate regime ($\sim$20s) yields best trade-off
+    \item Longer inputs provide diminishing returns
+\end{itemize}
+
+\medskip
+\centering
+\fbox{\parbox{0.75\linewidth}{Quality vs duration curve}}
+
+\end{block}
+
+\end{column}
+
+\separatorcolumn
+
+% ============================================================
+% COLUMN 3 — Applications, Limits, Conclusion
+% ============================================================
+\begin{column}{\colwidth}
+
+\begin{block}{7. Applications}
+
+\textbf{Bandwidth Extension.}  
+Low-frequency content is preserved while high frequencies are synthesized
+conditionally.
+
+\medskip
+\textbf{Inpainting.}  
+Missing temporal segments are reconstructed using surrounding context.
+
+\medskip
+\textbf{Style-preserving variation.}  
+CAW generates infinite variations consistent with a single audio texture.
+
+\medskip
+\centering
+\fbox{\parbox{0.8\linewidth}{Application examples}}
+
+\end{block}
+
+\begin{block}{8. Limitations}
+
+\begin{itemize}
+    \item Assumes local stationarity
+    \item Fails on highly non-stationary signals (chirps, strong reverb)
+    \item No semantic understanding (phonemes, harmony)
+    \item Sensitive to first-scale bandwidth selection
+\end{itemize}
+
+\medskip
+\textbf{Observed failure mode.}  
+Reverberation is often transformed into high-pitched noise at fine scales.
+
+\end{block}
+
+\begin{block}{9. Discussion \& Conclusion}
+
+\textbf{What CAW does well}
+\begin{itemize}
+    \item Extreme data efficiency
+    \item Interpretable multi-scale structure
+    \item High-quality texture synthesis
+\end{itemize}
+
+\medskip
+\textbf{What it does not}
+\begin{itemize}
+    \item Learn symbolic or semantic structure
+    \item Replace large-scale pretrained audio models
+\end{itemize}
+
+\medskip
+\textbf{Perspective.}  
+CAW highlights the power of \emph{architectural inductive bias} and offers a compelling
+baseline for single-sample generative modeling.
+
+\end{block}
+
+\begin{block}{References}
+\footnotesize
+[1] Catch-A-Waveform: Learning to Generate Audio from a Single Short Example. \\
+[2] SinGAN: Learning a Generative Model from a Single Natural Image.
+\end{block}
+
+\end{column}
+
+\separatorcolumn
+\end{columns}
+\end{frame}
+
+\end{document}
