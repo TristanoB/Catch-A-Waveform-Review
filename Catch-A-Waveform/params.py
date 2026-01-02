@@ -19,8 +19,14 @@ class Params(object):
         self.set_first_scale_by_energy = True
         self.add_cond_noise = True
         self.min_energy_th = 0.0025  # minimum mean energy for first scale
-        self.is_cuda = torch.cuda.is_available()
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.is_mps = torch.backends.mps.is_available()
+        if self.is_mps:
+            self.device = torch.device("mps")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda:0")
+        else:
+            self.device = torch.device("cpu")
+        self.is_cuda = self.device.type == "cuda"
         self.initial_noise_amp = 1
         self.noise_amp_factor = 0.01
 
@@ -48,4 +54,4 @@ class Params(object):
         self.filter_size = 9
         self.num_layers = 8
         self.hidden_channels_init = 16
-        self.growing_hidden_channels_factor = 6
+        self.growing_hidden_channels_factor = 1

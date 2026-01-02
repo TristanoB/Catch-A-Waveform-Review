@@ -36,9 +36,11 @@ params = override_params(params, params_override)
 if len(params.inpainting_indices)%2 != 0:
     raise Exception('Provide START and END indices of each hole!')
 
-if params.is_cuda:
+if params.device.type == "cuda":
     torch.cuda.set_device(params.gpu_num)
     params.device = torch.device("cuda:%d" % params.gpu_num)
+elif params.device.type == "mps":
+    params.device = torch.device("mps")
 
 if params.manual_random_seed != -1:
     random.seed(params.manual_random_seed)

@@ -76,8 +76,7 @@ def calc_gradient_penalty(params, netD, real_data, fake_data, LAMBDA, alpha=None
     if alpha is None:
         alpha = torch.rand(1, 1)
         alpha = alpha.expand(real_data.size())
-        if torch.cuda.is_available():
-            alpha = alpha.cuda(real_data.get_device())  # gpu) #if use_cuda else alpha
+        alpha = alpha.to(real_data.device)
     interpolates = alpha * real_data + ((1 - alpha) * fake_data)
     interpolates = torch.autograd.Variable(interpolates, requires_grad=True)
     if params.run_mode == 'inpainting':
@@ -95,8 +94,7 @@ def calc_gradient_penalty(params, netD, real_data, fake_data, LAMBDA, alpha=None
         disc_interpolates = torch.cat((disc_interpolates, disc_interpolates_cp[:, :, params.not_valid_idx_end[-1] + 1:]), dim=2)
     if _grad_outputs is None:
         _grad_outputs = torch.ones(disc_interpolates.size())
-        if torch.cuda.is_available():
-            _grad_outputs = _grad_outputs.cuda(real_data.get_device())
+        _grad_outputs = _grad_outputs.to(real_data.device)
     gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=interpolates,
                                     grad_outputs=_grad_outputs,
                                     create_graph=True, retain_graph=True, only_inputs=True)[0]
@@ -335,8 +333,12 @@ def params_from_log(path, gpu_num=0):
             setattr(params, args[0], cast_general(args[2]))
         line = fId.readline()
     fId.close()
-    params.is_cuda = True if torch.cuda.is_available() else False
-    if params.is_cuda:
+    params.is_mps = torch.backends.mps.is_available()
+    params.is_cuda = False
+    if params.is_mps:
+        params.device = torch.device("mps")
+    elif torch.cuda.is_available():
+        params.is_cuda = True
         torch.cuda.set_device(gpu_num)
         params.gpu_num = gpu_num
         params.device = torch.device("cuda:%d" % gpu_num)
