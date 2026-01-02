@@ -6,7 +6,7 @@ set -e  # stop au premier crash
 # ==============================
 CAW_DIR="Catch-A-Waveform"
 INPUT_DIR="${CAW_DIR}/inputs"
-FILE_NAME="we_are_the_champion.wav"
+FILE_NAME="oiseaux.wav"
 
 # ==============================
 # Vérifications
