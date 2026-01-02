@@ -1,0 +1,14 @@
+key,real_path,fake_path,sr,snr_db,lsd
+10000Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@10000Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@10000Hz.wav,10000,-1.342857,3.754647
+1000Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@1000Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@1000Hz.wav,1000,-3.063280,3.645584
+1280Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@1280Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@1280Hz.wav,1280,-2.994962,3.467891
+1600Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@1600Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@1600Hz.wav,1600,-2.511029,3.374885
+2000Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@2000Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@2000Hz.wav,2000,-3.555670,3.445436
+2500Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@2500Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@2500Hz.wav,2500,-2.124236,3.274199
+320Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@320Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@320Hz.wav,320,-3.762356,3.586343
+4000Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@4000Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@4000Hz.wav,4000,-1.696810,3.374865
+400Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@400Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@400Hz.wav,400,-2.529468,3.911078
+500Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@500Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@500Hz.wav,500,-2.459172,4.086442
+640Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@640Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@640Hz.wav,640,-2.957524,3.755740
+8000Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@8000Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@8000Hz.wav,8000,-1.994566,3.314092
+800Hz,Catch-A-Waveform/outputs/we_are_the_champion_5/real@800Hz.wav,Catch-A-Waveform/outputs/we_are_the_champion_5/fake@800Hz.wav,800,-2.590957,3.690796
