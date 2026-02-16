@@ -13,7 +13,8 @@ class Params(object):
         self.manual_random_seed = -1 # -1 for no setting
         self.plot_losses = False
         self.init_sample_rate = 16000
-        self.fs_list = [320, 400, 500, 640, 800, 1000, 1280, 1600, 2000, 2500, 4000, 8000, 10000, 12000, 14400, 16000]
+        #self.fs_list = [320, 400, 500, 640, 800, 1000, 1280, 1600, 2000, 2500, 4000, 8000, 10000, 12000, 14400, 16000]
+        self.fs_list = [4000, 8000, 16000]
         self.run_mode = 'normal'
         self.speech = False
         self.set_first_scale_by_energy = True

@@ -92,7 +92,8 @@ if not os.path.exists('outputs'):
 if os.path.exists(params.output_folder):
     dirs = glob.glob(params.output_folder + '*')
     params.output_folder = params.output_folder + '_' + str(len(dirs) + 1)
-os.mkdir(params.output_folder)
+# Allow nested paths when input_file includes subfolders (e.g. _exp_crops/...).
+os.makedirs(params.output_folder, exist_ok=False)
 print('Writing results to %s\n' % params.output_folder)
 
 if params.run_mode == 'inpainting':

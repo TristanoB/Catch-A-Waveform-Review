@@ -1,1 +1,9 @@
 # Outputs folder 
+*.wav 
+*.png 
+*.csv 
+*.pth 
+*.pt 
+*.txt 
+*.DS_store
+
