@@ -6,7 +6,7 @@ set -e  # stop au premier crash
 # ==============================
 CAW_DIR="Catch-A-Waveform"
 INPUT_DIR="${CAW_DIR}/inputs"
-FILE_NAME="oiseaux.wav"
+FILE_NAME="matuidi_charo.wav"
 
 
 # ==============================
@@ -18,6 +18,6 @@ echo "🎵 Input file: $FILE_NAME"
 cd "$CAW_DIR"
 
 python train_main.py \
-  --input_file "$FILE_NAME"
+  --input_file "$FILE_NAME" \
 
 echo "✅ Training finished"
