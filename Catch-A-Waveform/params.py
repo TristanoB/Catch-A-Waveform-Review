@@ -16,18 +16,15 @@ class Params(object):
         #self.fs_list = [320, 400, 500, 640, 800, 1000, 1280, 1600, 2000, 2500, 4000, 8000, 10000, 12000, 14400, 16000]
         self.fs_list = [4000, 8000, 16000]
         self.run_mode = 'normal'
+        self.model_type = 'gan'  # 'gan' (original) or 'diffusion'
         self.speech = False
         self.set_first_scale_by_energy = True
         self.add_cond_noise = True
         self.min_energy_th = 0.0025  # minimum mean energy for first scale
+        self.device_str = ""  # optional override: "cpu", "mps", "cuda", "cuda:0", etc.
+        self.device = torch.device("cpu")  # placeholder, resolved later
         self.is_mps = torch.backends.mps.is_available()
-        if self.is_mps:
-            self.device = torch.device("mps")
-        elif torch.cuda.is_available():
-            self.device = torch.device("cuda:0")
-        else:
-            self.device = torch.device("cpu")
-        self.is_cuda = self.device.type == "cuda"
+        self.is_cuda = False
         self.initial_noise_amp = 1
         self.noise_amp_factor = 0.01
 
@@ -49,6 +46,15 @@ class Params(object):
         self.scheduler_lr_decay = 0.1
         self.beta1 = 0.5
 
+        ###########################
+        # Diffusion Parameters    #
+        ###########################
+        self.diffusion_steps = 200
+        self.diffusion_beta_start = 1e-4
+        self.diffusion_beta_end = 2e-2
+        self.diffusion_beta_schedule = 'linear'  # linear | cosine
+        self.diffusion_clip_denoised = True
+
         ####################
         # Model Parameters #
         ####################
@@ -56,3 +62,17 @@ class Params(object):
         self.num_layers = 8
         self.hidden_channels_init = 16
         self.growing_hidden_channels_factor = 1
+
+    def set_device(self):
+        # choose device in order: explicit override -> available mps -> cuda -> cpu
+        if self.device_str:
+            self.device = torch.device(self.device_str)
+        else:
+            if torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+            elif torch.cuda.is_available():
+                self.device = torch.device("cuda:0")
+            else:
+                self.device = torch.device("cpu")
+        self.is_mps = self.device.type == "mps"
+        self.is_cuda = self.device.type == "cuda"

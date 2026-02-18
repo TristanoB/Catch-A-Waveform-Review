@@ -28,37 +28,68 @@ class AudioGenerator(object):
 
     def generate(self, nSignals=1, length=20, generate_all_scales=False):
         for sig_idx in range(nSignals):
-            # Draws a signal up to current scale, using learned generators
-            output_signals_list = draw_signal(self.params, self.generators_list,
-                                              [round(f * length) for f in self.params.fs_list], self.params.fs_list,
-                                              self.noise_amp_list, output_all_scales=generate_all_scales)
-            # Write signals
-            if generate_all_scales:
-                for scale_idx, sig in enumerate(output_signals_list):
+            if self.params.model_type == 'diffusion':
+                output_signals_list = draw_signal_diffusion(
+                    self.params,
+                    self.generators_list,
+                    [round(f * length) for f in self.params.fs_list],
+                    self.params.fs_list,
+                    output_all_scales=generate_all_scales)
+                if generate_all_scales:
+                    for scale_idx, sig in enumerate(output_signals_list):
+                        write_signal(
+                            os.path.join(self.output_folder, 'GeneratedSignals',
+                                         'generated@%dHz.wav' % self.params.fs_list[scale_idx]),
+                            sig, self.params.fs_list[scale_idx], overwrite=False)
+                else:
                     write_signal(
                         os.path.join(self.output_folder, 'GeneratedSignals',
-                                     'generated@%dHz.wav' % self.params.fs_list[scale_idx]),
-                        sig, self.params.fs_list[scale_idx], overwrite=False)
+                                     'generated@%dHz.wav' % self.params.fs_list[-1]),
+                        output_signals_list, self.params.fs_list[-1], overwrite=False)
             else:
-                write_signal(
-                    os.path.join(self.output_folder, 'GeneratedSignals',
-                                 'generated@%dHz.wav' % self.params.fs_list[-1]),
-                    output_signals_list, self.params.fs_list[-1], overwrite=False)
+                output_signals_list = draw_signal(self.params, self.generators_list,
+                                                  [round(f * length) for f in self.params.fs_list], self.params.fs_list,
+                                                  self.noise_amp_list, output_all_scales=generate_all_scales)
+                # Write signals
+                if generate_all_scales:
+                    for scale_idx, sig in enumerate(output_signals_list):
+                        write_signal(
+                            os.path.join(self.output_folder, 'GeneratedSignals',
+                                         'generated@%dHz.wav' % self.params.fs_list[scale_idx]),
+                            sig, self.params.fs_list[scale_idx], overwrite=False)
+                else:
+                    write_signal(
+                        os.path.join(self.output_folder, 'GeneratedSignals',
+                                     'generated@%dHz.wav' % self.params.fs_list[-1]),
+                        output_signals_list, self.params.fs_list[-1], overwrite=False)
 
     def reconstruct(self, reconstruction_noise_list=None, write=True):
-        if reconstruction_noise_list is None:
-            reconstruction_noise_list = self.reconstruction_noise_list
-        reconstructed_signal = draw_signal(self.params, self.generators_list,
-                                           [int(l) for l in self.params.inputs_lengths],
-                                           self.params.fs_list, self.noise_amp_list,
-                                           reconstruction_noise_list=reconstruction_noise_list)
-        if write:
-            write_signal(
-                os.path.join(self.output_folder, 'GeneratedSignals',
-                             'reconstructed@%dHz.wav' % self.params.fs_list[-1]),
-                reconstructed_signal, self.params.fs_list[-1], overwrite=False)
+        if self.params.model_type == 'diffusion':
+            reconstructed_signal = draw_signal_diffusion(self.params, self.generators_list,
+                                                         [int(l) for l in self.params.inputs_lengths],
+                                                         self.params.fs_list,
+                                                         output_all_scales=False)
+            if write:
+                write_signal(
+                    os.path.join(self.output_folder, 'GeneratedSignals',
+                                 'reconstructed@%dHz.wav' % self.params.fs_list[-1]),
+                    reconstructed_signal, self.params.fs_list[-1], overwrite=False)
+            else:
+                return reconstructed_signal
         else:
-            return reconstructed_signal
+            if reconstruction_noise_list is None:
+                reconstruction_noise_list = self.reconstruction_noise_list
+            reconstructed_signal = draw_signal(self.params, self.generators_list,
+                                               [int(l) for l in self.params.inputs_lengths],
+                                               self.params.fs_list, self.noise_amp_list,
+                                               reconstruction_noise_list=reconstruction_noise_list)
+            if write:
+                write_signal(
+                    os.path.join(self.output_folder, 'GeneratedSignals',
+                                 'reconstructed@%dHz.wav' % self.params.fs_list[-1]),
+                    reconstructed_signal, self.params.fs_list[-1], overwrite=False)
+            else:
+                return reconstructed_signal
 
     def inpaint(self, new_noise=False):
         reconstruction_noise_list = self.reconstruction_noise_list
@@ -110,8 +141,12 @@ class AudioGenerator(object):
             self.params.device)
         lengths = [int(condition["condition_signal"].shape[2] / condition["condition_fs"] * fs) for fs in
                    self.params.fs_list]
-        conditioned_signal = draw_signal(self.params, self.generators_list, lengths,
-                                         self.params.fs_list, self.noise_amp_list, condition=condition)
+        if self.params.model_type == 'diffusion':
+            conditioned_signal = draw_signal_diffusion(self.params, self.generators_list, lengths,
+                                                       self.params.fs_list, output_all_scales=False)
+        else:
+            conditioned_signal = draw_signal(self.params, self.generators_list, lengths,
+                                             self.params.fs_list, self.noise_amp_list, condition=condition)
         if write:
             output_file = os.path.join(self.output_folder, 'GeneratedSignals',
                                        'conditioned_on_' + condition['name'])

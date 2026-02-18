@@ -1,14 +1,38 @@
 from torch import optim
+import torch
+import torch.nn as nn
 from utils.utils import *
 from utils.mss_loss import multi_scale_spectrogram_loss
 from models import CAW
+from models import diffusion as diffusion_models
 from utils.plotters import *
 import os
 import random
 import time
+import math
+
+
+def build_diffusion_schedule(params, device):
+    T = params.diffusion_steps
+    if params.diffusion_beta_schedule == 'cosine':
+        # cosine schedule from Nichol & Dhariwal 2021
+        s = 0.008
+        steps = T + 1
+        x = torch.linspace(0, T, steps, device=device)
+        alphas_cumprod = torch.cos(((x / T + s) / (1 + s)) * math.pi / 2) ** 2
+        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+        betas = betas.clamp(1e-5, 0.999)
+    else:
+        betas = torch.linspace(params.diffusion_beta_start, params.diffusion_beta_end, T, device=device)
+    alphas = 1.0 - betas
+    alphas_cumprod = torch.exp(torch.cumsum(torch.log(alphas), dim=0))
+    alphas_cumprod_prev = torch.cat([torch.ones(1, device=device), alphas_cumprod[:-1]], dim=0)
+    return betas, alphas, alphas_cumprod, alphas_cumprod_prev
 
 
 def train(params, signals_list):
+
     if params.manual_random_seed != -1:
         random.seed(params.manual_random_seed)
         torch.manual_seed(params.manual_random_seed)
@@ -28,15 +52,24 @@ def train(params, signals_list):
     loss_vectors = []
 
     for scale_idx in range(n_scales):
-        output_signals_single_scale, loss_vectors_single_scale, netG, reconstruction_noise_list, noise_amp = train_single_scale(
-            params,
-            signals_list,
-            fs_list,
-            generators_list,
-            noise_amp_list,
-            energy_list,
-            reconstruction_noise_list)
-
+        if params.model_type == "gan":
+            output_signals_single_scale, loss_vectors_single_scale, netG, reconstruction_noise_list, noise_amp = train_single_scale_gan(
+                params,
+                signals_list,
+                fs_list,
+                generators_list,
+                noise_amp_list,
+                energy_list,
+                reconstruction_noise_list)
+        else:
+            output_signals_single_scale, loss_vectors_single_scale, netG, reconstruction_noise_list, noise_amp = train_single_scale_diffusion(
+                params,
+                signals_list,
+                fs_list,
+                generators_list,
+                noise_amp_list,
+                energy_list,
+                reconstruction_noise_list)
         # Write fake sound
         fake_sound = output_signals_single_scale['fake_signal'].squeeze()
         filename = 'fake@%dHz.wav' % params.fs_list[scale_idx]
@@ -59,8 +92,8 @@ def train(params, signals_list):
     return output_signals, loss_vectors, generators_list, noise_amp_list, energy_list, reconstruction_noise_list
 
 
-def train_single_scale(params, signals_list, fs_list, generators_list, noise_amp_list, energy_list,
-                       reconstruction_noise_list):
+def train_single_scale_gan(params, signals_list, fs_list, generators_list, noise_amp_list, energy_list,
+                           reconstruction_noise_list):
     # Terminology: 0 is the higher scale (original signal, no downsampling). Higher scale means larger downsampling, e.g shorter signals
     n_scales = len(params.scales)
     current_scale = n_scales - len(generators_list) - 1
@@ -321,3 +354,120 @@ def train_single_scale(params, signals_list, fs_list, generators_list, noise_amp
         torch.cuda.empty_cache()
     print('*' * 30 + ' Finished working on scale ' + str(current_scale) + ' ' + '*' * 30)
     return output_signals, loss_vectors, netG, reconstruction_noise_list, noise_amp
+
+def train_single_scale_diffusion(params, signals_list, fs_list, generators_list, noise_amp_list, energy_list,
+                                 reconstruction_noise_list):
+    n_scales = len(params.scales)
+    current_scale = n_scales - len(generators_list) - 1
+    scale_idx = n_scales - current_scale - 1
+    input_signal = signals_list[scale_idx].to(params.device)
+    params.current_fs = fs_list[scale_idx]
+    N = len(input_signal)
+
+    pad_size = calc_pad_size(params)
+    signal_padder = nn.ConstantPad1d(pad_size, 0)
+
+    real_signal = input_signal.reshape(1, 1, N)
+    real_signal_padded = signal_padder(real_signal)
+
+    params.hidden_channels = params.hidden_channels_init if scale_idx == 0 else int(
+        params.hidden_channels_init * params.growing_hidden_channels_factor)
+
+    netDiff = diffusion_models.DiffusionUNet1D(params).to(params.device)
+
+    if scale_idx >= 1:
+        netDiff.load_state_dict(
+            torch.load('%s/netDiffScale%d.pth' % (params.output_folder, scale_idx - 1), map_location=params.device))
+
+    optimizer = optim.Adam(netDiff.parameters(), lr=params.learning_rate, betas=(0.9, 0.999))
+
+    betas, alphas, alphas_cumprod, alphas_cumprod_prev = build_diffusion_schedule(params, params.device)
+
+    v_rec_loss = np.zeros(params.num_epochs,)
+    v_dummy = np.zeros(params.num_epochs,)
+
+    inputs_lengths = params.inputs_lengths
+
+    for epoch_num in range(params.num_epochs):
+        print_progress = epoch_num % 100 == 0
+
+        if scale_idx == 0:
+            prev_signal = torch.full(real_signal.shape, 0, device=params.device, dtype=real_signal.dtype)
+        else:
+            prev_signal = draw_signal_diffusion(params, generators_list, inputs_lengths, fs_list)
+        prev_signal = signal_padder(prev_signal)
+
+        t = torch.randint(0, params.diffusion_steps, (1,), device=params.device).long()
+        eps = torch.randn_like(real_signal_padded)
+        sqrt_alpha_bar = torch.sqrt(alphas_cumprod[t]).view(1, 1, 1)
+        sqrt_one_minus_alpha_bar = torch.sqrt(1 - alphas_cumprod[t]).view(1, 1, 1)
+        x_t = sqrt_alpha_bar * real_signal_padded + sqrt_one_minus_alpha_bar * eps
+
+        eps_pred = netDiff(x_t, t, prev_signal)
+
+        if pad_size > 0:
+            eps_center = eps[:, :, pad_size:-pad_size]
+            eps_pred_center = eps_pred[:, :, pad_size:-pad_size]
+        else:
+            eps_center = eps
+            eps_pred_center = eps_pred
+
+        loss = torch.mean((eps_pred_center - eps_center) ** 2)
+
+        # Optional reconstruction losses on predicted x0
+        if params.alpha1 > 0 or params.alpha2 > 0:
+            x0_pred_center = (real_signal_padded - sqrt_one_minus_alpha_bar * eps_pred) / sqrt_alpha_bar
+            if pad_size > 0:
+                x0_pred = x0_pred_center[:, :, pad_size:-pad_size]
+            else:
+                x0_pred = x0_pred_center
+            rec_loss_t = 0
+            rec_loss_f = 0
+            if params.alpha1 > 0:
+                rec_loss_t = params.alpha1 * torch.mean((real_signal - x0_pred) ** 2)
+            if params.alpha2 > 0:
+                rec_loss_f = params.alpha2 * multi_scale_spectrogram_loss(params,
+                                                                          real_signal.permute(0, 2, 1),
+                                                                          x0_pred.permute(0, 2, 1))
+            loss = loss + rec_loss_t + rec_loss_f
+            rec_loss_val = (rec_loss_t + rec_loss_f).item() if torch.is_tensor(rec_loss_t) else loss.item()
+        else:
+            rec_loss_val = loss.item()
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        if params.plot_losses:
+            v_rec_loss[epoch_num] = rec_loss_val
+            v_dummy[epoch_num] = 0
+
+        if print_progress:
+            print('[%d/%d] eps_loss: %.6f rec_loss: %.6f' % (epoch_num, params.num_epochs, loss.item(), rec_loss_val))
+
+    # sample fake and reconstructed signals for this scale
+    gens_tmp = generators_list + [netDiff.eval()]
+    fake_signal = draw_signal_diffusion(params, gens_tmp, params.inputs_lengths[:len(gens_tmp)], fs_list,
+                                        output_all_scales=False)
+    reconstructed_signal = fake_signal
+
+    if params.plot_losses:
+        loss_vectors = {'v_err_real': v_dummy,
+                        'v_err_fake': v_dummy,
+                        'v_rec_loss': v_rec_loss,
+                        'v_gp': v_dummy}
+    else:
+        loss_vectors = []
+
+    fake_np = fake_signal.detach().cpu().numpy()[:, 0, :]
+    rec_np = reconstructed_signal.detach().cpu().numpy()[:, 0, :]
+    output_signals = {'fake_signal': fake_np, 'reconstructed_signal': rec_np}
+
+    torch.save(netDiff.state_dict(), '%s/netDiffScale%d.pth' % (params.output_folder, scale_idx))
+    netDiff = reset_grads(netDiff, False)
+    netDiff.eval()
+    if params.is_cuda:
+        torch.cuda.empty_cache()
+    noise_amp = 0  # placeholder for interface compatibility
+    reconstruction_noise_list.append(torch.zeros_like(real_signal))
+    return output_signals, loss_vectors, netDiff, reconstruction_noise_list, noise_amp

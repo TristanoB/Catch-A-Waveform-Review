@@ -1,9 +1,10 @@
 from models.GeneralBlocks import *
 
+# --- GAN --- 
 
 class Generator(nn.Module):
     def __init__(self, params):
-        super(Generator, self).__init__()
+        super(Generator, self).__init__() # à quoi sert le super(Generator) ici ? 
         self.head = ConvBlock(params, 1, params.hidden_channels, params.dilation_factors[0])
         self.body = nn.Sequential()
         self.Fs = params.current_fs
@@ -82,3 +83,28 @@ def weights_init(m):
     elif classname.find('Norm') != -1 and hasattr(m, 'weight'):
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
+
+# --- diffusion model --- 
+
+class DiffusionModel(nn.Module): # pourquoi faire dépendre de nn.Module ici ? 
+    def __init__(self, params) : 
+        super(DiffusionModel,self).__init__() # pourquoi ici on fait le super(DiffusionModel)
+        # define the pertinent blocks 
+        self.Fs = params.current_fs 
+        for i in range(params.num_layers - 2) : 
+            # add layer 
+            pass 
+
+
+    def forward() :  
+        pass 
+
+
+
+
+
+
+
+
+
+

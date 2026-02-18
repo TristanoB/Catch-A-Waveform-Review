@@ -1,4 +1,5 @@
 from utils.utils import *
+import numpy as np
 import glob
 from params import Params
 from training import train
@@ -20,27 +21,37 @@ if __name__ == '__main__':
     parser.add_argument('--init_sample_rate', help='Resample input to a given sample rate', default=16000, type=int)
     parser.add_argument('--num_epochs', help='Number of training epochs in each scale', default=2000, type=int)
     parser.add_argument('--num_layers', help='Number of layers in each model', default=8, type=int)
+    parser.add_argument('--device', help='Device override: cpu | mps | cuda | cuda:0 ...', default='', type=str)
     parser.add_argument('--speech', default=False, action='store_true')
     parser.add_argument('--run_mode', default='normal', type=str, choices=['normal', 'inpainting', 'denoising'])
+    parser.add_argument('--model_type', default='gan', type=str, choices=['gan', 'diffusion'])
+    parser.add_argument('--diffusion_steps', default=200, type=int)
+    parser.add_argument('--diffusion_beta_start', default=1e-4, type=float)
+    parser.add_argument('--diffusion_beta_end', default=2e-2, type=float)
+    parser.add_argument('--diffusion_beta_schedule', default='linear', type=str, choices=['linear', 'cosine'])
+    parser.add_argument('--diffusion_clip_denoised', default=False, action='store_true')
     parser.add_argument('--inpainting_indices', default=[0, 1], nargs='+', type=int,
                         help='Start and end indices of hole (for inpainting)')
     parser.add_argument('--plot_losses', help='Save and plot GAN losses', default=False, action='store_true')
     parser.add_argument('--plot_signals', help='Plot signals', default=False, action='store_true')
 
-    params_override = parser.parse_args()
+params_override = parser.parse_args()
 
 startTime = time.time()
 params = Params()
 params = override_params(params, params_override)
+# move CLI device override into device_str
+if isinstance(params.device, str) and params.device != "":
+    params.device_str = params.device
+    params.device = torch.device("cpu")
+params.set_device()
 
 if len(params.inpainting_indices)%2 != 0:
     raise Exception('Provide START and END indices of each hole!')
 
 if params.device.type == "cuda":
     torch.cuda.set_device(params.gpu_num)
-    params.device = torch.device("cuda:%d" % params.gpu_num)
-elif params.device.type == "mps":
-    params.device = torch.device("mps")
+    params.device = torch.device(f"cuda:{params.gpu_num}")
 
 if params.manual_random_seed != -1:
     random.seed(params.manual_random_seed)
@@ -50,6 +61,8 @@ if params.manual_random_seed != -1:
 
 # Get input signal
 samples = get_input_signal(params)
+# Normalize array type for torch (avoids numpy 2.x dtype inference issues)
+samples = np.asarray(samples, dtype=np.float32)
 # set scales
 params.fs_list = [f for f in params.fs_list if f <= params.Fs]
 if params.fs_list[-1] != params.Fs:
@@ -101,12 +114,12 @@ if params.run_mode == 'inpainting':
 
 # samples = samples.reshape((1, -1))
 
-# Create input signal for each scale
-signals_list, fs_list = create_input_signals(params, torch.tensor(samples), params.Fs)
+# Create input signal for each scale (avoid torch<->numpy bridge)
+signals_list, fs_list = create_input_signals(params, torch.tensor(samples.tolist(), dtype=torch.float32), params.Fs)
 if len(signals_list) == 0:
     params.set_first_scale_by_energy = False
     params.scales = params.scales[2:]  # Manually start from 500
-    signals_list, fs_list = create_input_signals(params, torch.tensor(samples), params.Fs)
+    signals_list, fs_list = create_input_signals(params, torch.tensor(samples.tolist(), dtype=torch.float32), params.Fs)
 params.scales = [params.Fs / f for f in fs_list]
 params.fs_list = fs_list
 params.inputs_lengths = [len(s) for s in signals_list]

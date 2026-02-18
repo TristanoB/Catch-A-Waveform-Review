@@ -67,3 +67,9 @@ Embedding diversity / coverage metrics
 ## 5. Overfitting & Generalization
 Train on crop A, evaluate similarity against crop B. Nearest-neighbor retrieval test: Distribution of minimum patch distances. Detect memorization spikes
 
+# Useful command  
+
+To launch the diffusion model training : 
+
+
+

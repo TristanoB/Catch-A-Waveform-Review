@@ -3,8 +3,21 @@ import numpy as np
 
 
 def stft(sig, n_fft, hop_length, window_size):
-    s = torch.stft(sig, n_fft, hop_length, win_length=window_size,
-                   window=torch.hann_window(window_size, device=sig.device), return_complex=False)
+    if sig.device.type == "mps" : 
+        sig_cpu = sig.cpu()
+        window = torch.hann_window(window_size, device="cpu")
+        s = torch.stft(
+            sig_cpu,
+            n_fft,
+            hop_length,
+            win_length=window_size,
+            window=window,
+            return_complex=False
+        )
+        s = s.to(sig.device)
+    else : 
+        s = torch.stft(sig, n_fft, hop_length, win_length=window_size,
+                       window=torch.hann_window(window_size, device=sig.device), return_complex=False)
     return s
 
 

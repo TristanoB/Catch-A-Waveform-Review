@@ -2,13 +2,22 @@ import os
 import numpy as np
 import soundfile as sf
 import glob
+import math
 from numpy.fft import fft, ifft
 from utils.resize_right import ResizeLayer
 from params import Params
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+# Compat shim for older librosa expecting deprecated aliases
+if not hasattr(np, "complex"):
+    np.complex = np.complex128  # type: ignore[attr-defined]
+if not hasattr(np, "bool"):
+    np.bool = np.bool_  # type: ignore[attr-defined]
 import librosa
 from models import CAW
+from models import diffusion as diffusion_models
 from scipy import interpolate
 
 
@@ -116,7 +125,9 @@ def create_input_signals(params, input_signal, Fs):
         if downsample == 1:
             coarse_sig = input_signal
         else:
-            coarse_sig = torch.Tensor(librosa.resample(input_signal.squeeze().numpy(), Fs, fs))
+            sig = input_signal.unsqueeze(0).unsqueeze(0).to(dtype=torch.float32)
+            coarse = F.interpolate(sig, scale_factor=1 / downsample, mode='linear', align_corners=False)
+            coarse_sig = coarse.squeeze(0).squeeze(0).to(input_signal.dtype)
         if params.run_mode == 'inpainting':
             holes_sum = 0
             for hole_idx in params.inpainting_indices:
@@ -285,6 +296,82 @@ def draw_signal(params, generators_list, signals_lengths_list, fs_list, noise_am
         return prev_sig
 
 
+def build_diffusion_schedule(params, device):
+    T = params.diffusion_steps
+    if params.diffusion_beta_schedule == 'cosine':
+        s = 0.008
+        steps = T + 1
+        x = torch.linspace(0, T, steps, device=device)
+        alphas_cumprod = torch.cos(((x / T + s) / (1 + s)) * math.pi / 2) ** 2
+        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+        betas = betas.clamp(1e-5, 0.999)
+    else:
+        betas = torch.linspace(params.diffusion_beta_start, params.diffusion_beta_end, T, device=device)
+    alphas = 1.0 - betas
+    alphas_cumprod = torch.cumprod(alphas, dim=0)
+    alphas_cumprod_prev = torch.cat([torch.ones(1, device=device), alphas_cumprod[:-1]], dim=0)
+    return betas, alphas, alphas_cumprod, alphas_cumprod_prev
+
+
+def draw_signal_diffusion(params, generators_list, signals_lengths_list, fs_list, output_all_scales=False):
+    # Diffusion sampling per scale with conditioning on upper scale
+    betas, alphas, alphas_cumprod, alphas_cumprod_prev = build_diffusion_schedule(params, params.device)
+    pad_size = calc_pad_size(params)
+    signal_padder = nn.ConstantPad1d(pad_size, 0)
+
+    prev_sig = None
+    signals_all_scales = []
+
+    for scale_idx, net in enumerate(generators_list):
+        n_samples = signals_lengths_list[scale_idx]
+        x = torch.randn(1, 1, n_samples, device=params.device)
+
+        if prev_sig is None:
+            cond = torch.zeros_like(x)
+        else:
+            up_sig = resample_sig(params, prev_sig, orig_fs=fs_list[scale_idx - 1], target_fs=fs_list[scale_idx])
+            if up_sig.shape[2] > n_samples:
+                up_sig = up_sig[:, :, :n_samples]
+            elif up_sig.shape[2] < n_samples:
+                up_sig = torch.cat((up_sig, up_sig.new_zeros(1, 1, n_samples - up_sig.shape[2])), dim=2)
+            cond = up_sig
+        x = signal_padder(x)
+        cond = signal_padder(cond)
+
+        for t in reversed(range(params.diffusion_steps)):
+            t_tensor = torch.tensor([t], device=params.device).long()
+            eps_pred = net(x, t_tensor, cond)
+
+            alpha_bar = alphas_cumprod[t]
+            alpha_bar_prev = alphas_cumprod_prev[t]
+
+            x0_pred = (x - torch.sqrt(1 - alpha_bar) * eps_pred) / torch.sqrt(alpha_bar)
+            if params.diffusion_clip_denoised:
+                x0_pred = torch.clamp(x0_pred, -1, 1)
+
+            mean = torch.sqrt(alpha_bar_prev) * x0_pred + torch.sqrt(1 - alpha_bar_prev) * eps_pred
+            if t > 0:
+                noise = torch.randn_like(x)
+                var = betas[t] * (1 - alpha_bar_prev) / (1 - alpha_bar)
+                x = mean + torch.sqrt(var) * noise
+            else:
+                x = mean
+
+        if pad_size > 0:
+            x_out = x[:, :, pad_size:-pad_size]
+        else:
+            x_out = x
+
+        signals_all_scales.append(torch.squeeze(x_out).detach().cpu().numpy())
+        prev_sig = x_out.detach()
+
+    if output_all_scales:
+        return signals_all_scales
+    else:
+        return prev_sig
+
+
 def cast_general(x):
     if x.isdigit():  # int
         return (int(x))
@@ -333,16 +420,10 @@ def params_from_log(path, gpu_num=0):
             setattr(params, args[0], cast_general(args[2]))
         line = fId.readline()
     fId.close()
-    params.is_mps = torch.backends.mps.is_available()
-    params.is_cuda = False
-    if params.is_mps:
-        params.device = torch.device("mps")
-    elif torch.cuda.is_available():
-        params.is_cuda = True
-        torch.cuda.set_device(gpu_num)
-        params.gpu_num = gpu_num
-        params.device = torch.device("cuda:%d" % gpu_num)
-    else:
+    # allow device override from log if present
+    try:
+        params.set_device()
+    except Exception:
         params.device = torch.device("cpu")
     params.noise_amp_list = noise_amp_list_from_log(path)
     try:
@@ -380,15 +461,18 @@ def generators_list_from_folder(params):
         params.hidden_channels = params.hidden_channels_init if scale_idx == 0 else int(
             params.hidden_channels_init * params.growing_hidden_channels_factor)
         params.current_fs = params.fs_list[scale_idx]
-        netG = CAW.Generator(params).to(params.device)
+        if params.model_type == 'diffusion':
+            net = diffusion_models.DiffusionUNet1D(params).to(params.device)
+            fname = '%s/netDiffScale%d.pth' % (params.output_folder, scale_idx)
+        else:
+            net = CAW.Generator(params).to(params.device)
+            fname = '%s/netGScale%d.pth' % (params.output_folder, scale_idx)
         try:
-            netG.load_state_dict(
-                torch.load('%s/netGScale%d.pth' % (params.output_folder, scale_idx), map_location=params.device))
-            netG = reset_grads(netG, False)
-            netG.eval()
-            generators_list.append(netG)
+            net.load_state_dict(torch.load(fname, map_location=params.device))
+            net = reset_grads(net, False)
+            net.eval()
+            generators_list.append(net)
         except:
-            netG = CAW.Generator(params).to(params.device)
             continue
     return generators_list
 
@@ -397,7 +481,7 @@ def write_signal(path, signal, fs, overwrite=False, subtype='PCM_16'):
     if signal is None:
         return
     if torch.is_tensor(signal):
-        signal = signal.squeeze().detach().cpu().numpy()
+        signal = np.array(signal.squeeze().detach().cpu().tolist(), dtype=np.float32)
     if not path.endswith('.wav'):
         path = path + '.wav'
     if not overwrite:
