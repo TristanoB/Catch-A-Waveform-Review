@@ -314,8 +314,9 @@ def build_diffusion_schedule(params, device):
     return betas, alphas, alphas_cumprod, alphas_cumprod_prev
 
 
+@torch.no_grad()
 def draw_signal_diffusion(params, generators_list, signals_lengths_list, fs_list, output_all_scales=False):
-    # Diffusion sampling per scale with conditioning on upper scale
+    # Diffusion sampling per scale with conditioning on upper scale. no_grad to avoid keeping graphs during sampling.
     betas, alphas, alphas_cumprod, alphas_cumprod_prev = build_diffusion_schedule(params, params.device)
     pad_size = calc_pad_size(params)
     signal_padder = nn.ConstantPad1d(pad_size, 0)
