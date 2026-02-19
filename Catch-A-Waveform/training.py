@@ -173,7 +173,6 @@ def train_single_scale_gan(params, signals_list, fs_list, generators_list, noise
 
     inputs_lengths = params.inputs_lengths
     for epoch_num in range(params.num_epochs):
-        print_progress = epoch_num % 100 == 0
         # Create noise
         noise_signal = get_noise(params, real_signal.shape)
         noise_signal = signal_padder(noise_signal)
@@ -387,6 +386,9 @@ def train_single_scale_diffusion(params, signals_list, fs_list, generators_list,
     v_dummy = np.zeros(params.num_epochs,)
 
     inputs_lengths = params.inputs_lengths
+    # Cache the conditional signal from previous scales to avoid recomputing expensive diffusion sampling every epoch
+    prev_signal_cached = None
+    cond_refresh_every = getattr(params, "cond_refresh_every", 50)
 
     for epoch_num in range(params.num_epochs):
         print_progress = epoch_num % 100 == 0
@@ -394,7 +396,9 @@ def train_single_scale_diffusion(params, signals_list, fs_list, generators_list,
         if scale_idx == 0:
             prev_signal = torch.full(real_signal.shape, 0, device=params.device, dtype=real_signal.dtype)
         else:
-            prev_signal = draw_signal_diffusion(params, generators_list, inputs_lengths, fs_list)
+            if prev_signal_cached is None or epoch_num % cond_refresh_every == 0:
+                prev_signal_cached = draw_signal_diffusion(params, generators_list, inputs_lengths, fs_list)
+            prev_signal = prev_signal_cached
         prev_signal = signal_padder(prev_signal)
 
         t = torch.randint(0, params.diffusion_steps, (1,), device=params.device).long()
