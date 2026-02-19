@@ -12,28 +12,28 @@ import random
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--gpu_num', help='GPU id to use', default=0, type=int)
-    parser.add_argument('--input_file', help='Path to input file', default='trump_farewell_address_8.wav')
-    parser.add_argument('--start_time', help='Skip beginning, in [sec]', default=0, type=float)
-    parser.add_argument('--max_length', help='Max length of signal, in [sec]', default=25, type=float)
-    parser.add_argument('--segments_to_train', default=[], type=float, nargs='+',
+    parser.add_argument('--gpu_num', help='GPU id to use', default=None, type=int)
+    parser.add_argument('--input_file', help='Path to input file', default=None)
+    parser.add_argument('--start_time', help='Skip beginning, in [sec]', default=None, type=float)
+    parser.add_argument('--max_length', help='Max length of signal, in [sec]', default=None, type=float)
+    parser.add_argument('--segments_to_train', default=None, type=float, nargs='+',
                         help='Train on several segments of input signal, please provide segements in the form: start1, end1, start2, end2,... in [sec]')
-    parser.add_argument('--init_sample_rate', help='Resample input to a given sample rate', default=16000, type=int)
-    parser.add_argument('--num_epochs', help='Number of training epochs in each scale', default=2000, type=int)
-    parser.add_argument('--num_layers', help='Number of layers in each model', default=8, type=int)
-    parser.add_argument('--device', help='Device override: cpu | mps | cuda | cuda:0 ...', default='', type=str)
-    parser.add_argument('--speech', default=False, action='store_true')
-    parser.add_argument('--run_mode', default='normal', type=str, choices=['normal', 'inpainting', 'denoising'])
-    parser.add_argument('--model_type', default='gan', type=str, choices=['gan', 'diffusion'])
-    parser.add_argument('--diffusion_steps', default=200, type=int)
-    parser.add_argument('--diffusion_beta_start', default=1e-4, type=float)
-    parser.add_argument('--diffusion_beta_end', default=2e-2, type=float)
-    parser.add_argument('--diffusion_beta_schedule', default='linear', type=str, choices=['linear', 'cosine'])
-    parser.add_argument('--diffusion_clip_denoised', default=False, action='store_true')
-    parser.add_argument('--inpainting_indices', default=[0, 1], nargs='+', type=int,
+    parser.add_argument('--init_sample_rate', help='Resample input to a given sample rate', default=None, type=int)
+    parser.add_argument('--num_epochs', help='Number of training epochs in each scale', default=None, type=int)
+    parser.add_argument('--num_layers', help='Number of layers in each model', default=None, type=int)
+    parser.add_argument('--device', help='Device override: cpu | mps | cuda | cuda:0 ...', default=None, type=str)
+    parser.add_argument('--speech', default=None, action='store_true')
+    parser.add_argument('--run_mode', default=None, type=str, choices=['normal', 'inpainting', 'denoising'])
+    parser.add_argument('--model_type', default=None, type=str, choices=['gan', 'diffusion'])
+    parser.add_argument('--diffusion_steps', default=None, type=int)
+    parser.add_argument('--diffusion_beta_start', default=None, type=float)
+    parser.add_argument('--diffusion_beta_end', default=None, type=float)
+    parser.add_argument('--diffusion_beta_schedule', default=None, type=str, choices=['linear', 'cosine'])
+    parser.add_argument('--diffusion_clip_denoised', default=None, action='store_true')
+    parser.add_argument('--inpainting_indices', default=None, nargs='+', type=int,
                         help='Start and end indices of hole (for inpainting)')
-    parser.add_argument('--plot_losses', help='Save and plot GAN losses', default=False, action='store_true')
-    parser.add_argument('--plot_signals', help='Plot signals', default=False, action='store_true')
+    parser.add_argument('--plot_losses', help='Save and plot GAN losses', default=None, action='store_true')
+    parser.add_argument('--plot_signals', help='Plot signals', default=None, action='store_true')
 
 params_override = parser.parse_args()
 

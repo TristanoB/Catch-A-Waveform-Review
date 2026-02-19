@@ -7,6 +7,7 @@ class Params(object):
         ######################
         self.start_time = 0
         self.segments_to_train = []
+        self.input_file = 'trump_farewell_address_8.wav'
         self.min_length = 20
         self.max_length = 25
         self.plot_signals = False
@@ -23,10 +24,12 @@ class Params(object):
         self.min_energy_th = 0.0025  # minimum mean energy for first scale
         self.device_str = ""  # optional override: "cpu", "mps", "cuda", "cuda:0", etc.
         self.device = torch.device("cpu")  # placeholder, resolved later
+        self.gpu_num = 0
         self.is_mps = torch.backends.mps.is_available()
         self.is_cuda = False
         self.initial_noise_amp = 1
         self.noise_amp_factor = 0.01
+        self.inpainting_indices = [0, 1]
 
         #####################
         # Losses Parameters #

@@ -451,7 +451,10 @@ def noise_amp_list_from_log(path):
 
 def override_params(params, params_override):
     for key in vars(params_override):
-        setattr(params, key, getattr(params_override, key))
+        value = getattr(params_override, key)
+        # Only override when user supplied a CLI value (argparse leaves None when flag not passed)
+        if value is not None:
+            setattr(params, key, value)
     return params
 
 
