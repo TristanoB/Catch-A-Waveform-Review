@@ -416,7 +416,8 @@ def train_single_scale_diffusion(params, signals_list, fs_list, generators_list,
 
         # Optional reconstruction losses on predicted x0
         if params.alpha1 > 0 or params.alpha2 > 0:
-            x0_pred_center = (real_signal_padded - sqrt_one_minus_alpha_bar * eps_pred) / sqrt_alpha_bar
+            # predict x0 from the noised sample x_t (not the clean signal) as in DDPM
+            x0_pred_center = (x_t - sqrt_one_minus_alpha_bar * eps_pred) / sqrt_alpha_bar
             if pad_size > 0:
                 x0_pred = x0_pred_center[:, :, pad_size:-pad_size]
             else:
@@ -436,6 +437,7 @@ def train_single_scale_diffusion(params, signals_list, fs_list, generators_list,
 
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(netDiff.parameters(), 1.0)
         optimizer.step()
 
         if params.plot_losses:
