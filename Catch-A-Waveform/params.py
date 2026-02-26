@@ -1,5 +1,6 @@
 import torch
 
+
 class Params(object):
     def __init__(self):
         ######################
@@ -7,17 +8,34 @@ class Params(object):
         ######################
         self.start_time = 0
         self.segments_to_train = []
-        self.input_file = 'trump_farewell_address_8.wav'
+        self.input_file = "trump_farewell_address_8.wav"
         self.min_length = 20
         self.max_length = 25
         self.plot_signals = False
-        self.manual_random_seed = -1 # -1 for no setting
+        self.manual_random_seed = -1  # -1 for no setting
         self.plot_losses = False
         self.init_sample_rate = 16000
-        #self.fs_list = [320, 400, 500, 640, 800, 1000, 1280, 1600, 2000, 2500, 4000, 8000, 10000, 12000, 14400, 16000]
-        self.fs_list = [4000, 8000, 16000]
-        self.run_mode = 'normal'
-        self.model_type = 'gan'  # 'gan' (original) or 'diffusion'
+        self.fs_list = [
+            320,
+            400,
+            500,
+            640,
+            800,
+            1000,
+            1280,
+            1600,
+            2000,
+            2500,
+            4000,
+            8000,
+            10000,
+            12000,
+            14400,
+            16000,
+        ]
+        # self.fs_list = [4000, 8000, 16000]
+        self.run_mode = "normal"
+        self.model_type = "gan"  # 'gan' (original) or 'diffusion'
         self.speech = False
         self.set_first_scale_by_energy = True
         self.add_cond_noise = True
@@ -55,7 +73,7 @@ class Params(object):
         self.diffusion_steps = 200
         self.diffusion_beta_start = 1e-4
         self.diffusion_beta_end = 2e-2
-        self.diffusion_beta_schedule = 'linear'  # linear | cosine
+        self.diffusion_beta_schedule = "linear"  # linear | cosine
         self.diffusion_clip_denoised = True
 
         ####################
@@ -65,6 +83,11 @@ class Params(object):
         self.num_layers = 8
         self.hidden_channels_init = 16
         self.growing_hidden_channels_factor = 1
+
+        ####################
+        # Interpolation Parameters #
+        ####################
+        self.interp_method = "lanczos3"
 
     def set_device(self):
         # choose device in order: explicit override -> available mps -> cuda -> cpu

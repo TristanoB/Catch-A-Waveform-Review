@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+
 # Compat shim for older librosa expecting deprecated aliases
 if not hasattr(np, "complex"):
     np.complex = np.complex128  # type: ignore[attr-defined]
@@ -25,7 +26,7 @@ def get_noise(params, shape):
     return torch.randn(shape, device=params.device)
 
 
-def stitch_signals(real_signal, signal_to_stitch, frame_idcs, window_size=2 ** 14 - 1):
+def stitch_signals(real_signal, signal_to_stitch, frame_idcs, window_size=2**14 - 1):
     naive_stitched_signal = np.copy(real_signal)
     for idx in frame_idcs:
         naive_stitched_signal[idx] = signal_to_stitch[idx]
@@ -35,14 +36,22 @@ def stitch_signals(real_signal, signal_to_stitch, frame_idcs, window_size=2 ** 1
         if win_size % 2 == 0:
             win_size -= 1
         window = np.hanning(win_size)
-        transition_in_idcs = range(frame_idcs[i][0] - (win_size + 1) // 2, frame_idcs[i][0])
-        in_window = window[:(win_size + 1) // 2]
-        out_window = window[(win_size + 1) // 2 - 1:]
-        transition_out_idcs = range(frame_idcs[i][-1], frame_idcs[i][-1] + win_size // 2 + 1)
-        ola_stitched_signal[transition_in_idcs] = in_window * signal_to_stitch[transition_in_idcs] + out_window * \
-                                              real_signal[transition_in_idcs]
-        ola_stitched_signal[transition_out_idcs] = in_window * real_signal[transition_out_idcs] + out_window * \
-                                               signal_to_stitch[transition_out_idcs]
+        transition_in_idcs = range(
+            frame_idcs[i][0] - (win_size + 1) // 2, frame_idcs[i][0]
+        )
+        in_window = window[: (win_size + 1) // 2]
+        out_window = window[(win_size + 1) // 2 - 1 :]
+        transition_out_idcs = range(
+            frame_idcs[i][-1], frame_idcs[i][-1] + win_size // 2 + 1
+        )
+        ola_stitched_signal[transition_in_idcs] = (
+            in_window * signal_to_stitch[transition_in_idcs]
+            + out_window * real_signal[transition_in_idcs]
+        )
+        ola_stitched_signal[transition_out_idcs] = (
+            in_window * real_signal[transition_out_idcs]
+            + out_window * signal_to_stitch[transition_out_idcs]
+        )
     return ola_stitched_signal
 
 
@@ -52,7 +61,7 @@ def calc_snr(est, real):
     est = est[:min_len]
     real_fit = real
     est_fit = est
-    snr = 10 * np.log10(sum(real_fit ** 2) / sum((est_fit - real_fit) ** 2))
+    snr = 10 * np.log10(sum(real_fit**2) / sum((est_fit - real_fit) ** 2))
 
     return snr
 
@@ -60,7 +69,9 @@ def calc_snr(est, real):
 def calc_lsd(est, real, eps=1e-15):
     WIN_SIZE = 2048
     min_length = min(len(est), len(real))
-    assert abs(len(real) - len(est)) / min_length < 0.2, 'Mismatch in length between 2 signals'
+    assert (
+        abs(len(real) - len(est)) / min_length < 0.2
+    ), "Mismatch in length between 2 signals"
     real = real[:min_length]
     est = est[:min_length]
     X = abs(librosa.stft(est, n_fft=WIN_SIZE, hop_length=WIN_SIZE)) ** 2
@@ -80,7 +91,16 @@ def reset_grads(model, require_grad):
     return model
 
 
-def calc_gradient_penalty(params, netD, real_data, fake_data, LAMBDA, alpha=None, _grad_outputs=None, mask_ratio=None):
+def calc_gradient_penalty(
+    params,
+    netD,
+    real_data,
+    fake_data,
+    LAMBDA,
+    alpha=None,
+    _grad_outputs=None,
+    mask_ratio=None,
+):
     # Gradient penalty method for WGAN
     if alpha is None:
         alpha = torch.rand(1, 1)
@@ -88,26 +108,50 @@ def calc_gradient_penalty(params, netD, real_data, fake_data, LAMBDA, alpha=None
         alpha = alpha.to(real_data.device)
     interpolates = alpha * real_data + ((1 - alpha) * fake_data)
     interpolates = torch.autograd.Variable(interpolates, requires_grad=True)
-    if params.run_mode == 'inpainting':
+    if params.run_mode == "inpainting":
         use_mask = True
     else:
         use_mask = False
         mask_ratio = 1
     disc_interpolates = netD(interpolates, use_mask)
-    if params.run_mode == 'inpainting':
+    if params.run_mode == "inpainting":
         disc_interpolates_cp = disc_interpolates.clone()
-        disc_interpolates = disc_interpolates_cp[:, :, :params.not_valid_idx_start[0]]
+        disc_interpolates = disc_interpolates_cp[:, :, : params.not_valid_idx_start[0]]
         if len(params.current_holes) > 1:
             for i in range(len(params.current_holes) - 1):
-                disc_interpolates = torch.cat((disc_interpolates, disc_interpolates_cp[:, :, params.not_valid_idx_end[i] + 1:params.not_valid_idx_start[i+1]]), dim=2)
-        disc_interpolates = torch.cat((disc_interpolates, disc_interpolates_cp[:, :, params.not_valid_idx_end[-1] + 1:]), dim=2)
+                disc_interpolates = torch.cat(
+                    (
+                        disc_interpolates,
+                        disc_interpolates_cp[
+                            :,
+                            :,
+                            params.not_valid_idx_end[i]
+                            + 1 : params.not_valid_idx_start[i + 1],
+                        ],
+                    ),
+                    dim=2,
+                )
+        disc_interpolates = torch.cat(
+            (
+                disc_interpolates,
+                disc_interpolates_cp[:, :, params.not_valid_idx_end[-1] + 1 :],
+            ),
+            dim=2,
+        )
     if _grad_outputs is None:
         _grad_outputs = torch.ones(disc_interpolates.size())
         _grad_outputs = _grad_outputs.to(real_data.device)
-    gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=interpolates,
-                                    grad_outputs=_grad_outputs,
-                                    create_graph=True, retain_graph=True, only_inputs=True)[0]
-    gradient_penalty = ((mask_ratio * gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
+    gradients = torch.autograd.grad(
+        outputs=disc_interpolates,
+        inputs=interpolates,
+        grad_outputs=_grad_outputs,
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True,
+    )[0]
+    gradient_penalty = (
+        (mask_ratio * gradients.norm(2, dim=1) - 1) ** 2
+    ).mean() * LAMBDA
     del gradients, interpolates, _grad_outputs, disc_interpolates
     return gradient_penalty
 
@@ -126,27 +170,29 @@ def create_input_signals(params, input_signal, Fs):
             coarse_sig = input_signal
         else:
             sig = input_signal.unsqueeze(0).unsqueeze(0).to(dtype=torch.float32)
-            coarse = F.interpolate(sig, scale_factor=1 / downsample, mode='linear', align_corners=False)
+            coarse = F.interpolate(
+                sig, scale_factor=1 / downsample, mode="linear", align_corners=False
+            )
             coarse_sig = coarse.squeeze(0).squeeze(0).to(input_signal.dtype)
-        if params.run_mode == 'inpainting':
+        if params.run_mode == "inpainting":
             holes_sum = 0
             for hole_idx in params.inpainting_indices:
-                holes_sum += hole_idx[1] - hole_idx[0] + 2*rf
+                holes_sum += hole_idx[1] - hole_idx[0] + 2 * rf
             if (holes_sum) / params.Fs * fs > len(coarse_sig):
-                    continue
+                continue
         if params.speech and fs < 500:
             continue
         if params.set_first_scale_by_energy and not params.speech:
-            e = (coarse_sig ** 2).mean()
+            e = (coarse_sig**2).mean()
             if e < params.min_energy_th and not set_first_scale:
                 continue
         set_first_scale = True
         signals_list.append(coarse_sig)
-        assert np.mod(fs, 1) == 0, 'Sampling rate is not integer'
+        assert np.mod(fs, 1) == 0, "Sampling rate is not integer"
         fs_list.append(int(fs))
 
         # Write downsampled real sound
-        filename = 'real@%dHz.wav' % fs
+        filename = "real@%dHz.wav" % fs
         write_signal(os.path.join(params.output_folder, filename), coarse_sig.cpu(), fs)
 
     return signals_list, fs_list
@@ -163,22 +209,37 @@ def calc_pad_size(params, dilation_factors=None, filter_size=None):
 def calc_receptive_field(filter_size, dilation_factors, Fs=None):
     if Fs is None:
         # in samples
-        return (filter_size * dilation_factors[0] + sum(dilation_factors[1:]) * (filter_size - 1))
+        return filter_size * dilation_factors[0] + sum(dilation_factors[1:]) * (
+            filter_size - 1
+        )
     else:
         # in [ms]
-        return (filter_size * dilation_factors[0] + sum(dilation_factors[1:]) * (filter_size - 1)) / Fs * 1e3
+        return (
+            (
+                filter_size * dilation_factors[0]
+                + sum(dilation_factors[1:]) * (filter_size - 1)
+            )
+            / Fs
+            * 1e3
+        )
 
 
 def resample_sig(params, input_signal, orig_fs=None, target_fs=None):
-    if not hasattr(params, 'resamplers') or type(params.resamplers) == str:
+    if not hasattr(params, "resamplers") or type(params.resamplers) == str:
         params.resamplers = {}
-    if (orig_fs, target_fs) in params.resamplers.keys() and params.resamplers[(orig_fs, target_fs)].in_shape[2] == \
-            input_signal.shape[2]:
+    if (orig_fs, target_fs) in params.resamplers.keys() and params.resamplers[
+        (orig_fs, target_fs)
+    ].in_shape[2] == input_signal.shape[2]:
         resampler = params.resamplers[(orig_fs, target_fs)]
     else:
         in_shape = input_signal.shape
         scale_factors = (1, 1, target_fs / orig_fs)
-        resampler = ResizeLayer(in_shape, scale_factors=scale_factors, device=params.device)
+        resampler = ResizeLayer(
+            in_shape,
+            scale_factors=scale_factors,
+            device=params.device,
+            interp_method=params.interp_method,
+        )
         params.resamplers[(orig_fs, target_fs)] = resampler
     new_sig = resampler(input_signal)
 
@@ -186,28 +247,41 @@ def resample_sig(params, input_signal, orig_fs=None, target_fs=None):
 
 
 def get_input_signal(params):
-    file_name = params.input_file.split('.')
+    file_name = params.input_file.split(".")
     if len(file_name) < 2:
-        params.input_file = '.'.join([params.input_file, 'wav'])
-    output_folder = file_name[0].replace(' ', '_')
+        params.input_file = ".".join([params.input_file, "wav"])
+    output_folder = file_name[0].replace(" ", "_")
     if len(params.segments_to_train) == 0:
-        samples, Fs = librosa.load(os.path.join('inputs', params.input_file), sr=None,
-                                   offset=params.start_time, duration=2 * params.max_length)
+        samples, Fs = librosa.load(
+            os.path.join("inputs", params.input_file),
+            sr=None,
+            offset=params.start_time,
+            duration=2 * params.max_length,
+        )
     else:
         if len(params.segments_to_train) % 2 == 1:
-            raise Exception('Please provide valid segments, in the form of: start1, end1, start2, end2, ... in [sec]')
+            raise Exception(
+                "Please provide valid segments, in the form of: start1, end1, start2, end2, ... in [sec]"
+            )
         params.max_length = 1e3  # dummy
         params.min_length = 0
         for idx in range(0, len(params.segments_to_train), 2):
             if idx == 0:
-                samples, Fs = librosa.load(os.path.join('inputs', params.input_file), sr=None,
-                                           offset=params.segments_to_train[idx],
-                                           duration=params.segments_to_train[idx + 1] - params.segments_to_train[idx])
+                samples, Fs = librosa.load(
+                    os.path.join("inputs", params.input_file),
+                    sr=None,
+                    offset=params.segments_to_train[idx],
+                    duration=params.segments_to_train[idx + 1]
+                    - params.segments_to_train[idx],
+                )
             else:
-                _samples, _ = librosa.load(os.path.join('inputs', params.input_path), sr=None,
-                                           offset=params.segments_to_train[idx],
-                                           duration=params.segments_to_train[idx + 1] - params.segments_to_train[
-                                               idx])
+                _samples, _ = librosa.load(
+                    os.path.join("inputs", params.input_path),
+                    sr=None,
+                    offset=params.segments_to_train[idx],
+                    duration=params.segments_to_train[idx + 1]
+                    - params.segments_to_train[idx],
+                )
                 samples = np.concatenate((samples, _samples))
 
     if samples.shape[0] / Fs > params.max_length:
@@ -215,7 +289,7 @@ def get_input_signal(params):
         samples = samples[:n_samples]
 
     params.output_folder = output_folder
-    params.output_folder = os.path.join('outputs', params.output_folder)
+    params.output_folder = os.path.join("outputs", params.output_folder)
     params.Fs = Fs
     if params.init_sample_rate < Fs:
         hr_samples = samples.copy()
@@ -226,8 +300,16 @@ def get_input_signal(params):
     return samples
 
 
-def draw_signal(params, generators_list, signals_lengths_list, fs_list, noise_amp_list, reconstruction_noise_list=None,
-                condition=None, output_all_scales=False):
+def draw_signal(
+    params,
+    generators_list,
+    signals_lengths_list,
+    fs_list,
+    noise_amp_list,
+    reconstruction_noise_list=None,
+    condition=None,
+    output_all_scales=False,
+):
     # Draws a signal up to current scale, using learned generators
     pad_size = calc_pad_size(params)
     if output_all_scales:
@@ -243,7 +325,12 @@ def draw_signal(params, generators_list, signals_lengths_list, fs_list, noise_am
                 noise_signal = noise_signal * noise_amp
 
             if scale_idx == 0:
-                prev_sig = torch.full(noise_signal.shape, 0, device=params.device, dtype=noise_signal.dtype)
+                prev_sig = torch.full(
+                    noise_signal.shape,
+                    0,
+                    device=params.device,
+                    dtype=noise_signal.dtype,
+                )
             else:
                 prev_sig = signal_padder(prev_sig)
 
@@ -257,8 +344,12 @@ def draw_signal(params, generators_list, signals_lengths_list, fs_list, noise_am
             if scale_idx < condition["condition_scale_idx"]:
                 continue
             elif scale_idx == condition["condition_scale_idx"]:
-                prev_sig = resample_sig(params, condition["condition_signal"], condition['condition_fs'],
-                                        params.fs_list[scale_idx]).expand(1, 1, -1)
+                prev_sig = resample_sig(
+                    params,
+                    condition["condition_signal"],
+                    condition["condition_fs"],
+                    params.fs_list[scale_idx],
+                ).expand(1, 1, -1)
             noise_signal = get_noise(params, prev_sig.shape[2]).expand(1, 1, -1)
             noise_signal = signal_padder(noise_signal)
             noise_signal = noise_signal * noise_amp
@@ -272,17 +363,30 @@ def draw_signal(params, generators_list, signals_lengths_list, fs_list, noise_am
 
         # Upsample for next scale
         if scale_idx < len(fs_list) - 1:
-            up_sig = resample_sig(params, cur_sig, orig_fs=fs_list[scale_idx], target_fs=fs_list[scale_idx + 1])
+            up_sig = resample_sig(
+                params,
+                cur_sig,
+                orig_fs=fs_list[scale_idx],
+                target_fs=fs_list[scale_idx + 1],
+            )
             if up_sig.shape[2] > signals_lengths_list[scale_idx + 1]:
-                assert abs(
-                    up_sig.shape[2] > signals_lengths_list[scale_idx + 1]) < 20, 'Should not happen, check this!'
-                up_sig = up_sig[:, :, :signals_lengths_list[scale_idx + 1]]
+                assert (
+                    abs(up_sig.shape[2] > signals_lengths_list[scale_idx + 1]) < 20
+                ), "Should not happen, check this!"
+                up_sig = up_sig[:, :, : signals_lengths_list[scale_idx + 1]]
             elif up_sig.shape[2] < signals_lengths_list[scale_idx + 1]:
-                assert abs(
-                    up_sig.shape[2] < signals_lengths_list[scale_idx + 1]) < 20, 'Should not happen, check this!'
+                assert (
+                    abs(up_sig.shape[2] < signals_lengths_list[scale_idx + 1]) < 20
+                ), "Should not happen, check this!"
                 up_sig = torch.cat(
-                    (up_sig, up_sig.new_zeros(1, 1, signals_lengths_list[scale_idx + 1] - up_sig.shape[2])),
-                    dim=2)
+                    (
+                        up_sig,
+                        up_sig.new_zeros(
+                            1, 1, signals_lengths_list[scale_idx + 1] - up_sig.shape[2]
+                        ),
+                    ),
+                    dim=2,
+                )
         else:
             up_sig = cur_sig
         prev_sig = up_sig
@@ -298,7 +402,7 @@ def draw_signal(params, generators_list, signals_lengths_list, fs_list, noise_am
 
 def build_diffusion_schedule(params, device):
     T = params.diffusion_steps
-    if params.diffusion_beta_schedule == 'cosine':
+    if params.diffusion_beta_schedule == "cosine":
         s = 0.008
         steps = T + 1
         x = torch.linspace(0, T, steps, device=device)
@@ -307,17 +411,25 @@ def build_diffusion_schedule(params, device):
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
         betas = betas.clamp(1e-5, 0.999)
     else:
-        betas = torch.linspace(params.diffusion_beta_start, params.diffusion_beta_end, T, device=device)
+        betas = torch.linspace(
+            params.diffusion_beta_start, params.diffusion_beta_end, T, device=device
+        )
     alphas = 1.0 - betas
     alphas_cumprod = torch.cumprod(alphas, dim=0)
-    alphas_cumprod_prev = torch.cat([torch.ones(1, device=device), alphas_cumprod[:-1]], dim=0)
+    alphas_cumprod_prev = torch.cat(
+        [torch.ones(1, device=device), alphas_cumprod[:-1]], dim=0
+    )
     return betas, alphas, alphas_cumprod, alphas_cumprod_prev
 
 
 @torch.no_grad()
-def draw_signal_diffusion(params, generators_list, signals_lengths_list, fs_list, output_all_scales=False):
+def draw_signal_diffusion(
+    params, generators_list, signals_lengths_list, fs_list, output_all_scales=False
+):
     # Diffusion sampling per scale with conditioning on upper scale. no_grad to avoid keeping graphs during sampling.
-    betas, alphas, alphas_cumprod, alphas_cumprod_prev = build_diffusion_schedule(params, params.device)
+    betas, alphas, alphas_cumprod, alphas_cumprod_prev = build_diffusion_schedule(
+        params, params.device
+    )
     pad_size = calc_pad_size(params)
     signal_padder = nn.ConstantPad1d(pad_size, 0)
 
@@ -331,11 +443,18 @@ def draw_signal_diffusion(params, generators_list, signals_lengths_list, fs_list
         if prev_sig is None:
             cond = torch.zeros_like(x)
         else:
-            up_sig = resample_sig(params, prev_sig, orig_fs=fs_list[scale_idx - 1], target_fs=fs_list[scale_idx])
+            up_sig = resample_sig(
+                params,
+                prev_sig,
+                orig_fs=fs_list[scale_idx - 1],
+                target_fs=fs_list[scale_idx],
+            )
             if up_sig.shape[2] > n_samples:
                 up_sig = up_sig[:, :, :n_samples]
             elif up_sig.shape[2] < n_samples:
-                up_sig = torch.cat((up_sig, up_sig.new_zeros(1, 1, n_samples - up_sig.shape[2])), dim=2)
+                up_sig = torch.cat(
+                    (up_sig, up_sig.new_zeros(1, 1, n_samples - up_sig.shape[2])), dim=2
+                )
             cond = up_sig
         x = signal_padder(x)
         cond = signal_padder(cond)
@@ -351,7 +470,10 @@ def draw_signal_diffusion(params, generators_list, signals_lengths_list, fs_list
             if params.diffusion_clip_denoised:
                 x0_pred = torch.clamp(x0_pred, -1, 1)
 
-            mean = torch.sqrt(alpha_bar_prev) * x0_pred + torch.sqrt(1 - alpha_bar_prev) * eps_pred
+            mean = (
+                torch.sqrt(alpha_bar_prev) * x0_pred
+                + torch.sqrt(1 - alpha_bar_prev) * eps_pred
+            )
             if t > 0:
                 noise = torch.randn_like(x)
                 var = betas[t] * (1 - alpha_bar_prev) / (1 - alpha_bar)
@@ -375,7 +497,7 @@ def draw_signal_diffusion(params, generators_list, signals_lengths_list, fs_list
 
 def cast_general(x):
     if x.isdigit():  # int
-        return (int(x))
+        return int(x)
     else:
         try:
             ret = float(x)  # float
@@ -383,9 +505,9 @@ def cast_general(x):
                 ret = int(ret)  # int
             return ret
         except ValueError:  # str or bool
-            if x == 'True':
+            if x == "True":
                 return True
-            elif x == 'False':
+            elif x == "False":
                 return False
             else:
                 if x[0] == "'" and x[-1] == "'":
@@ -394,27 +516,27 @@ def cast_general(x):
 
 
 def params_from_log(path, gpu_num=0):
-    fId = open(path, 'r')
+    fId = open(path, "r")
     line = fId.readline()
     params = Params()
-    while not line[:2] == '\n' and not line == '':
-        if not '=' in line:
+    while not line[:2] == "\n" and not line == "":
+        if not "=" in line:
             line = fId.readline()
             continue
-        if line.startswith('file_name'):
-            args = line.split('=')
-            file_name = args[1].strip('\n')[1:]
+        if line.startswith("file_name"):
+            args = line.split("=")
+            file_name = args[1].strip("\n")[1:]
             params.file_name = file_name
             line = fId.readline()
             continue
         args = line.split()
         if len(args) < 3:
-            setattr(params, args[0], '')
-        elif len(args) > 3 or args[2][0] == '[':  # it's a list
-            tmp = line.split('[')
+            setattr(params, args[0], "")
+        elif len(args) > 3 or args[2][0] == "[":  # it's a list
+            tmp = line.split("[")
             try:
-                tmp2 = tmp[1].split(']')
-                setattr(params, args[0], [cast_general(a) for a in tmp2[0].split(', ')])
+                tmp2 = tmp[1].split("]")
+                setattr(params, args[0], [cast_general(a) for a in tmp2[0].split(", ")])
             except:
                 pass
         else:
@@ -430,18 +552,18 @@ def params_from_log(path, gpu_num=0):
     try:
         params.dilation_factors = [int(i) for i in params.dilation_factors]
     except:
-        params.dilation_factors = [2 ** i for i in range(params.num_layers)]
+        params.dilation_factors = [2**i for i in range(params.num_layers)]
     params.fs_list = [int(i) for i in params.fs_list]
     params.inputs_lengths = [int(s) for s in params.inputs_lengths]
     return params
 
 
 def noise_amp_list_from_log(path):
-    fId = open(path, 'r')
+    fId = open(path, "r")
     line = fId.readline()
     noise_amp_list = []
     while line:
-        if line.startswith('noise_amp') and not line.startswith('noise_amp_factor'):
+        if line.startswith("noise_amp") and not line.startswith("noise_amp_factor"):
             args = line.split()
             noise_amp_list.append(float(args[1]))
         line = fId.readline()
@@ -462,15 +584,20 @@ def generators_list_from_folder(params):
     generators_list = []
     n_generators = len(params.scales)
     for scale_idx in range(n_generators):
-        params.hidden_channels = params.hidden_channels_init if scale_idx == 0 else int(
-            params.hidden_channels_init * params.growing_hidden_channels_factor)
+        params.hidden_channels = (
+            params.hidden_channels_init
+            if scale_idx == 0
+            else int(
+                params.hidden_channels_init * params.growing_hidden_channels_factor
+            )
+        )
         params.current_fs = params.fs_list[scale_idx]
-        if params.model_type == 'diffusion':
+        if params.model_type == "diffusion":
             net = diffusion_models.DiffusionUNet1D(params).to(params.device)
-            fname = '%s/netDiffScale%d.pth' % (params.output_folder, scale_idx)
+            fname = "%s/netDiffScale%d.pth" % (params.output_folder, scale_idx)
         else:
             net = CAW.Generator(params).to(params.device)
-            fname = '%s/netGScale%d.pth' % (params.output_folder, scale_idx)
+            fname = "%s/netGScale%d.pth" % (params.output_folder, scale_idx)
         try:
             net.load_state_dict(torch.load(fname, map_location=params.device))
             net = reset_grads(net, False)
@@ -481,17 +608,17 @@ def generators_list_from_folder(params):
     return generators_list
 
 
-def write_signal(path, signal, fs, overwrite=False, subtype='PCM_16'):
+def write_signal(path, signal, fs, overwrite=False, subtype="PCM_16"):
     if signal is None:
         return
     if torch.is_tensor(signal):
         signal = np.array(signal.squeeze().detach().cpu().tolist(), dtype=np.float32)
-    if not path.endswith('.wav'):
-        path = path + '.wav'
+    if not path.endswith(".wav"):
+        path = path + ".wav"
     if not overwrite:
         if os.path.exists(path):
-            files = glob.glob(path[:-4].replace('[Hz]', '[[]Hz[]]') + '*')
-            path = path[:-4] + '_' + str(len(files)) + path[-4:]
+            files = glob.glob(path[:-4].replace("[Hz]", "[[]Hz[]]") + "*")
+            path = path[:-4] + "_" + str(len(files)) + path[-4:]
     maxAmp = max(abs(signal.reshape(-1)))
     if maxAmp > 1:
         signal = signal / maxAmp  # normalize to avoid clipping
@@ -508,11 +635,15 @@ def time_freq_stitch_by_fft(low_signal, high_signal, low_Fs, high_Fs, filt_file=
 
     if not filt_file is None:
         f_id = open(filt_file)
-        real_data = np.array([float(n) for n in f_id.readline().strip('\n').split()])
-        imag_data = np.array([float(n) for n in f_id.readline().strip('\n').split()])
+        real_data = np.array([float(n) for n in f_id.readline().strip("\n").split()])
+        imag_data = np.array([float(n) for n in f_id.readline().strip("\n").split()])
         f_id.close()
         Hlib = real_data + 1j * imag_data
-        f = interpolate.interp1d(np.array([i / len(Hlib) for i in range(len(Hlib))]), Hlib, fill_value="extrapolate")
+        f = interpolate.interp1d(
+            np.array([i / len(Hlib) for i in range(len(Hlib))]),
+            Hlib,
+            fill_value="extrapolate",
+        )
         H = f(np.array([i / nFFT for i in range(nFFT)]))
     else:
         H = 1 / factor
@@ -526,18 +657,32 @@ def time_freq_stitch_by_fft(low_signal, high_signal, low_Fs, high_Fs, filt_file=
 
     stitch_idx = int(np.ceil(nFFT_low / 2))
     filt_half_len = int(nFFT / high_Fs * 200)
-    stitch_filt = np.array([i / filt_half_len / 2 for i in range(filt_half_len * 2, -1, -1)])
+    stitch_filt = np.array(
+        [i / filt_half_len / 2 for i in range(filt_half_len * 2, -1, -1)]
+    )
     tmp = np.zeros((nFFT // 2,), dtype=complex)
-    tmp[:stitch_idx - 2 * filt_half_len] = low_fft[:stitch_idx - 2 * filt_half_len]
-    tmp[stitch_idx:] = high_fft[stitch_idx:nFFT // 2]
-    tmp[stitch_idx - 2 * filt_half_len:stitch_idx + 1] = stitch_filt * low_fft[
-                                                                       stitch_idx - 2 * filt_half_len:stitch_idx + 1] + np.flip(
-        stitch_filt) * high_fft[stitch_idx - 2 * filt_half_len:stitch_idx + 1]
-    R = np.concatenate((np.real(tmp), np.array([np.real(tmp[-1])]), np.flipud(np.real(tmp[1:]))))
-    I = np.concatenate((np.imag(tmp), np.zeros(1, ), -np.flipud(np.imag(tmp[1:]))))
+    tmp[: stitch_idx - 2 * filt_half_len] = low_fft[: stitch_idx - 2 * filt_half_len]
+    tmp[stitch_idx:] = high_fft[stitch_idx : nFFT // 2]
+    tmp[stitch_idx - 2 * filt_half_len : stitch_idx + 1] = (
+        stitch_filt * low_fft[stitch_idx - 2 * filt_half_len : stitch_idx + 1]
+        + np.flip(stitch_filt)
+        * high_fft[stitch_idx - 2 * filt_half_len : stitch_idx + 1]
+    )
+    R = np.concatenate(
+        (np.real(tmp), np.array([np.real(tmp[-1])]), np.flipud(np.real(tmp[1:])))
+    )
+    I = np.concatenate(
+        (
+            np.imag(tmp),
+            np.zeros(
+                1,
+            ),
+            -np.flipud(np.imag(tmp[1:])),
+        )
+    )
     out_fft = R + 1j * I
     out = np.real(ifft(out_fft))
     if nFFT_orig != nFFT:
         out = out[:nFFT_orig]
-        print('Dimentions mismatch!')
+        print("Dimentions mismatch!")
     return out
