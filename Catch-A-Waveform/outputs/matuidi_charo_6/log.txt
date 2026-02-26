@@ -1,0 +1,134 @@
+start_time = 0
+segments_to_train = []
+input_file = matuidi_charo.wav
+min_length = 20
+max_length = 25
+plot_signals = False
+manual_random_seed = -1
+plot_losses = False
+init_sample_rate = 16000
+fs_list = [320, 400, 500, 640, 800, 1000, 1280, 1600, 2000, 2500, 4000, 8000, 10000, 12000, 14400, 16000]
+run_mode = normal
+model_type = gan
+speech = False
+set_first_scale_by_energy = True
+add_cond_noise = True
+min_energy_th = 0.0025
+device_str = 
+device = mps
+gpu_num = 0
+is_mps = True
+is_cuda = False
+initial_noise_amp = 1
+noise_amp_factor = 0.01
+inpainting_indices = [0, 1]
+lambda_grad = 0.01
+alpha1 = 0
+alpha2 = 0.0001
+multispec_loss_n_fft = (2048, 1024, 512)
+multispec_loss_hop_length = (240, 120, 50)
+multispec_loss_window_size = (1200, 600, 240)
+num_epochs = 2000
+learning_rate = 0.0015
+scheduler_lr_decay = 0.1
+beta1 = 0.5
+diffusion_steps = 200
+diffusion_beta_start = 0.0001
+diffusion_beta_end = 0.02
+diffusion_beta_schedule = linear
+diffusion_clip_denoised = True
+filter_size = 9
+num_layers = 8
+hidden_channels_init = 16
+growing_hidden_channels_factor = 1
+interp_method = lanczos3
+output_folder = outputs/matuidi_charo_6
+Fs = 16000
+norm_factor = 1.0462155
+scales = [50.0, 40.0, 32.0, 25.0, 20.0, 16.0, 12.5, 10.0, 8.0, 6.4, 4.0, 2.0, 1.6, 1.3333333333333333, 1.1111111111111112, 1.0]
+scheduler_milestones = [1333]
+dilation_factors = [1, 2, 4, 8, 16, 32, 64, 128]
+inputs_lengths = [8000, 10000, 12500, 16000, 20000, 25000, 32000, 40000, 50000, 62500, 100000, 200000, 250000, 300000, 359999, 400000]
+****************************** Scale 15 (320 [Hz]) ******************************
+receptive_field = 6378[msec] (25.5% of input)
+signal_energy = 0.0691
+noise_amp: 1.000000
+Total time in scale 15: 274[sec] (0.14[sec]/epoch on avg.). D(real): 0.578339, D(fake): -0.818838, rec_loss: 4.9745. gp: 0.0066
+****************************** Scale 14 (400 [Hz]) ******************************
+receptive_field = 5102[msec] (20.4% of input)
+signal_energy = 0.0687
+noise_amp: 12.261902
+Total time in scale 14: 297[sec] (0.15[sec]/epoch on avg.). D(real): 1.020850, D(fake): -1.655123, rec_loss: 12.4746. gp: 0.0073
+****************************** Scale 13 (500 [Hz]) ******************************
+receptive_field = 4082[msec] (16.3% of input)
+signal_energy = 0.0692
+noise_amp: 0.000234
+Total time in scale 13: 335[sec] (0.17[sec]/epoch on avg.). D(real): 1.166980, D(fake): -1.521927, rec_loss: 21.8470. gp: 0.0069
+****************************** Scale 12 (640 [Hz]) ******************************
+receptive_field = 3189[msec] (12.8% of input)
+signal_energy = 0.0727
+noise_amp: 0.000589
+Total time in scale 12: 362[sec] (0.18[sec]/epoch on avg.). D(real): 1.494758, D(fake): -2.884301, rec_loss: 38.3832. gp: 0.0089
+****************************** Scale 11 (800 [Hz]) ******************************
+receptive_field = 2551[msec] (10.2% of input)
+signal_energy = 0.0691
+noise_amp: 0.000000
+Total time in scale 11: 409[sec] (0.20[sec]/epoch on avg.). D(real): -0.572286, D(fake): -3.702545, rec_loss: 55.7059. gp: 0.0117
+****************************** Scale 10 (1000 [Hz]) ******************************
+receptive_field = 2041[msec] (8.2% of input)
+signal_energy = 0.0690
+noise_amp: 0.000000
+Total time in scale 10: 452[sec] (0.23[sec]/epoch on avg.). D(real): 1.516189, D(fake): 0.104879, rec_loss: 75.9740. gp: 0.0091
+****************************** Scale 9 (1280 [Hz]) ******************************
+receptive_field = 1594[msec] (6.4% of input)
+signal_energy = 0.0707
+noise_amp: 0.000411
+Total time in scale 9: 523[sec] (0.26[sec]/epoch on avg.). D(real): 1.301361, D(fake): -2.186624, rec_loss: 103.7550. gp: 0.0063
+****************************** Scale 8 (1600 [Hz]) ******************************
+receptive_field = 1275[msec] (5.1% of input)
+signal_energy = 0.0697
+noise_amp: 0.000000
+Total time in scale 8: 582[sec] (0.29[sec]/epoch on avg.). D(real): 0.230821, D(fake): -3.221993, rec_loss: 138.4760. gp: 0.0059
+****************************** Scale 7 (2000 [Hz]) ******************************
+receptive_field = 1020[msec] (4.1% of input)
+signal_energy = 0.0693
+noise_amp: 0.000000
+Total time in scale 7: 636[sec] (0.32[sec]/epoch on avg.). D(real): -0.173024, D(fake): -4.546102, rec_loss: 182.9165. gp: 0.0063
+****************************** Scale 6 (2500 [Hz]) ******************************
+receptive_field = 816[msec] (3.3% of input)
+signal_energy = 0.0703
+noise_amp: 0.000318
+Total time in scale 6: 738[sec] (0.37[sec]/epoch on avg.). D(real): 2.644830, D(fake): -7.905144, rec_loss: 238.3240. gp: 0.0075
+****************************** Scale 5 (4000 [Hz]) ******************************
+receptive_field = 510[msec] (2.0% of input)
+signal_energy = 0.0696
+noise_amp: 0.000000
+Total time in scale 5: 761[sec] (0.38[sec]/epoch on avg.). D(real): 7.328264, D(fake): -14.676016, rec_loss: 340.4562. gp: 0.0081
+****************************** Scale 4 (8000 [Hz]) ******************************
+receptive_field = 255[msec] (1.0% of input)
+signal_energy = 0.0694
+noise_amp: 0.000000
+Total time in scale 4: 861[sec] (0.43[sec]/epoch on avg.). D(real): -2.257224, D(fake): -2.270578, rec_loss: 548.4102. gp: 0.0158
+****************************** Scale 3 (10000 [Hz]) ******************************
+receptive_field = 204[msec] (0.8% of input)
+signal_energy = 0.0703
+noise_amp: 0.000291
+Total time in scale 3: 1222[sec] (0.61[sec]/epoch on avg.). D(real): 4.892188, D(fake): -10.922227, rec_loss: 695.6838. gp: 0.0075
+****************************** Scale 2 (12000 [Hz]) ******************************
+receptive_field = 170[msec] (0.7% of input)
+signal_energy = 0.0702
+noise_amp: 0.000000
+Total time in scale 2: 1296[sec] (0.65[sec]/epoch on avg.). D(real): 5.027831, D(fake): -12.850192, rec_loss: 846.1745. gp: 0.5210
+****************************** Scale 1 (14400 [Hz]) ******************************
+receptive_field = 141[msec] (0.6% of input)
+signal_energy = 0.0703
+noise_amp: 0.000109
+Total time in scale 1: 1435[sec] (0.72[sec]/epoch on avg.). D(real): -11.131051, D(fake): -16.073687, rec_loss: 1011.4551. gp: 0.0053
+****************************** Scale 0 (16000 [Hz]) ******************************
+receptive_field = 127[msec] (0.5% of input)
+signal_energy = 0.0721
+noise_amp: 0.000418
+Total time in scale 0: 1433[sec] (0.72[sec]/epoch on avg.). D(real): 4.984863, D(fake): -19.535322, rec_loss: 1162.5033. gp: 0.0081
+
+Total Runtime is: 193 minutes
+ Finished running in : 2026-02-26 04:02:55.282315
