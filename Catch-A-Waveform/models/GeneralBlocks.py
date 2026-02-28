@@ -17,8 +17,20 @@ class PreEmphasisFilter(nn.Module):
 class NormConv1d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=True):
         super(NormConv1d, self).__init__()
-        self.conv = weight_norm(nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
-                                          stride=stride, padding=padding, dilation=dilation, bias=bias))
+        # weight_norm is not implemented on MPS (Metal). Fall back to a plain Conv1d there.
+        base_conv = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            bias=bias,
+        )
+        if torch.backends.mps.is_available():
+            self.conv = base_conv
+        else:
+            self.conv = weight_norm(base_conv)
 
     def forward(self, x):
         output = self.conv(x)

@@ -13,25 +13,33 @@ import math
 
 
 def build_diffusion_schedule(params, device):
+    # On MPS some reductions are missing (e.g., cumprod). Build schedule on CPU then move.
+    work_device = torch.device("cpu") if device.type == "mps" else device
     T = params.diffusion_steps
     if params.diffusion_beta_schedule == "cosine":
-        # cosine schedule from Nichol & Dhariwal 2021
         s = 0.008
         steps = T + 1
-        x = torch.linspace(0, T, steps, device=device)
+        x = torch.linspace(0, T, steps, device=work_device)
         alphas_cumprod = torch.cos(((x / T + s) / (1 + s)) * math.pi / 2) ** 2
         alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
         betas = betas.clamp(1e-5, 0.999)
     else:
         betas = torch.linspace(
-            params.diffusion_beta_start, params.diffusion_beta_end, T, device=device
+            params.diffusion_beta_start, params.diffusion_beta_end, T, device=work_device
         )
     alphas = 1.0 - betas
     alphas_cumprod = torch.exp(torch.cumsum(torch.log(alphas), dim=0))
     alphas_cumprod_prev = torch.cat(
-        [torch.ones(1, device=device), alphas_cumprod[:-1]], dim=0
+        [torch.ones(1, device=work_device), alphas_cumprod[:-1]], dim=0
     )
+
+    if work_device != device:
+        betas = betas.to(device)
+        alphas = alphas.to(device)
+        alphas_cumprod = alphas_cumprod.to(device)
+        alphas_cumprod_prev = alphas_cumprod_prev.to(device)
+
     return betas, alphas, alphas_cumprod, alphas_cumprod_prev
 
 
@@ -101,17 +109,18 @@ def train(params, signals_list):
             overwrite=False,
         )
 
-        # Write reconstructed sound
-        reconstructed_sound = output_signals_single_scale[
-            "reconstructed_signal"
-        ].squeeze()
-        filename = "reconstructed@%dHz.wav" % params.fs_list[scale_idx]
-        write_signal(
-            os.path.join(params.output_folder, filename),
-            reconstructed_sound,
-            params.fs_list[scale_idx],
-            overwrite=False,
-        )
+        # Write reconstructed sound only when available (GAN path). Diffusion currently has no true reconstruction.
+        if "reconstructed_signal" in output_signals_single_scale:
+            reconstructed_sound = output_signals_single_scale[
+                "reconstructed_signal"
+            ].squeeze()
+            filename = "reconstructed@%dHz.wav" % params.fs_list[scale_idx]
+            write_signal(
+                os.path.join(params.output_folder, filename),
+                reconstructed_sound,
+                params.fs_list[scale_idx],
+                overwrite=False,
+            )
         torch.save(
             reconstruction_noise_list,
             os.path.join(params.output_folder, "reconstruction_noise_list.pt"),
@@ -174,6 +183,15 @@ def train_single_scale_gan(
 
     scale_num = n_scales - scale_idx - 1
     pad_size = calc_pad_size(params)
+    # If padding would exceed signal length (can happen with many dilations on short clips),
+    # clamp it to keep discriminator output positive length.
+    max_safe_pad = max(0, (N - 1) // 2)
+    if pad_size > max_safe_pad:
+        if scale_idx == 0:
+            print(
+                f"Clamping pad_size from {pad_size} to {max_safe_pad} for short signal (N={N})."
+            )
+        pad_size = max_safe_pad
     signal_padder = nn.ConstantPad1d(pad_size, 0)
 
     # Initialize models
@@ -531,8 +549,8 @@ def train_single_scale_gan(
         }
     else:
         loss_vectors = []
-    fake_signal = fake_signal.detach().cpu().numpy()[:, 0, :]
-    reconstructed_signal = reconstructed_signal.detach().cpu().numpy()[:, 0, :]
+    fake_signal = np.asarray(fake_signal.detach().cpu().tolist(), dtype=np.float32)[:, 0, :]
+    reconstructed_signal = np.asarray(reconstructed_signal.detach().cpu().tolist(), dtype=np.float32)[:, 0, :]
     output_signals = {
         "fake_signal": fake_signal,
         "reconstructed_signal": reconstructed_signal,
@@ -567,6 +585,7 @@ def train_single_scale_diffusion(
     energy_list,
     reconstruction_noise_list,
 ):
+    print("Using diffusion model...")
     n_scales = len(params.scales)
     current_scale = n_scales - len(generators_list) - 1
     scale_idx = n_scales - current_scale - 1
@@ -603,33 +622,79 @@ def train_single_scale_diffusion(
     betas, alphas, alphas_cumprod, alphas_cumprod_prev = build_diffusion_schedule(
         params, params.device
     )
+    # Save a maximally noised forward sample for debugging (once per scale)
+    
+    print("Saving Noisy output?")
+    try:
+        print("yes?")
+        t_max = params.diffusion_steps - 1
+        if t_max >= 0:
+            eps_dbg = torch.randn_like(real_signal_padded)
+            sqrt_ab_dbg = torch.sqrt(alphas_cumprod[t_max]).view(1, 1, 1)
+            sqrt_1m_dbg = torch.sqrt(1 - alphas_cumprod[t_max]).view(1, 1, 1)
+            x_t_dbg = sqrt_ab_dbg * real_signal_padded + sqrt_1m_dbg * eps_dbg
+            if pad_size > 0:
+                x_t_dbg = x_t_dbg[:, :, pad_size:-pad_size]
+            save_path = os.path.join(
+                params.output_folder, f"forward_noisiest_scale{scale_idx}.wav"
+            )
+            write_signal(
+                save_path,
+                x_t_dbg,
+                params.current_fs,
+                overwrite=True,
+            )
+            print("yes!")
+            print(f"[debug forward noisy] saved {save_path}")
+    except Exception as exc:
+        print(f"[debug forward noisy] skipped: {exc}")
 
-    v_rec_loss = np.zeros(
-        params.num_epochs,
-    )
-    v_dummy = np.zeros(
-        params.num_epochs,
-    )
+    v_eps_loss = np.zeros(params.num_epochs)
+    v_rec_loss = np.zeros(params.num_epochs)
+    v_dummy = np.zeros(params.num_epochs)
 
     inputs_lengths = params.inputs_lengths
     # Cache the conditional signal from previous scales to avoid recomputing expensive diffusion sampling every epoch
     prev_signal_cached = None
     cond_refresh_every = getattr(params, "cond_refresh_every", 50)
 
+    # Precompute fixed conditioning when using teacher forcing (saves compute and easy to debug)
+    prev_signal_fixed = None
+    saved_prev_cond = False
+    if scale_idx == 0:
+        prev_signal_fixed = torch.full(
+            real_signal.shape, 0, device=params.device, dtype=real_signal.dtype
+        )
+    elif getattr(params, "teacher_force_condition", True):
+        gt_prev = signals_list[scale_idx - 1].to(params.device).reshape(1, 1, -1)
+        prev_signal_fixed = signal_padder(gt_prev)
+        if params.save_prev_cond and not saved_prev_cond:
+            prev_to_save = (
+                prev_signal_fixed[:, :, pad_size:-pad_size]
+                if pad_size > 0
+                else prev_signal_fixed
+            )
+            write_signal(
+                os.path.join(
+                    params.output_folder, f"prev_condition_scale{scale_idx}.wav"
+                ),
+                prev_to_save,
+                params.current_fs,
+                overwrite=True,
+            )
+            saved_prev_cond = True
+
     for epoch_num in range(params.num_epochs):
         print_progress = epoch_num % 100 == 0
 
-        if scale_idx == 0:
-            prev_signal = torch.full(
-                real_signal.shape, 0, device=params.device, dtype=real_signal.dtype
-            )
+        if prev_signal_fixed is not None:
+            prev_signal = prev_signal_fixed
         else:
             if prev_signal_cached is None or epoch_num % cond_refresh_every == 0:
                 prev_signal_cached = draw_signal_diffusion(
                     params, generators_list, inputs_lengths, fs_list
                 )
-            prev_signal = prev_signal_cached
-        prev_signal = signal_padder(prev_signal)
+            prev_signal = signal_padder(prev_signal_cached)
 
         t = torch.randint(0, params.diffusion_steps, (1,), device=params.device).long()
         eps = torch.randn_like(real_signal_padded)
@@ -646,7 +711,9 @@ def train_single_scale_diffusion(
             eps_center = eps
             eps_pred_center = eps_pred
 
-        loss = torch.mean((eps_pred_center - eps_center) ** 2)
+        eps_loss = torch.mean((eps_pred_center - eps_center) ** 2)
+        rec_loss = 0.0  # will stay float unless recon terms are active
+        loss = eps_loss
 
         # Optional reconstruction losses on predicted x0
         if params.alpha1 > 0 or params.alpha2 > 0:
@@ -666,14 +733,11 @@ def train_single_scale_diffusion(
                 rec_loss_f = params.alpha2 * multi_scale_spectrogram_loss(
                     params, real_signal.permute(0, 2, 1), x0_pred.permute(0, 2, 1)
                 )
-            loss = loss + rec_loss_t + rec_loss_f
-            rec_loss_val = (
-                (rec_loss_t + rec_loss_f).item()
-                if torch.is_tensor(rec_loss_t)
-                else loss.item()
-            )
+            rec_loss = rec_loss_t + rec_loss_f
+            loss = loss + rec_loss
+            rec_loss_val = rec_loss.item()
         else:
-            rec_loss_val = loss.item()
+            rec_loss_val = 0.0
 
         optimizer.zero_grad()
         loss.backward()
@@ -681,13 +745,14 @@ def train_single_scale_diffusion(
         optimizer.step()
 
         if params.plot_losses:
+            v_eps_loss[epoch_num] = eps_loss.item()
             v_rec_loss[epoch_num] = rec_loss_val
             v_dummy[epoch_num] = 0
 
         if print_progress:
             print(
                 "[%d/%d] eps_loss: %.6f rec_loss: %.6f"
-                % (epoch_num, params.num_epochs, loss.item(), rec_loss_val)
+                % (epoch_num, params.num_epochs, eps_loss.item(), rec_loss_val)
             )
 
     # sample fake and reconstructed signals for this scale
@@ -699,21 +764,20 @@ def train_single_scale_diffusion(
         fs_list,
         output_all_scales=False,
     )
-    reconstructed_signal = fake_signal
 
     if params.plot_losses:
         loss_vectors = {
             "v_err_real": v_dummy,
             "v_err_fake": v_dummy,
-            "v_rec_loss": v_rec_loss,
             "v_gp": v_dummy,
+            "v_eps_loss": v_eps_loss,
+            "v_rec_loss": v_rec_loss,
         }
     else:
         loss_vectors = []
 
-    fake_np = fake_signal.detach().cpu().numpy()[:, 0, :]
-    rec_np = reconstructed_signal.detach().cpu().numpy()[:, 0, :]
-    output_signals = {"fake_signal": fake_np, "reconstructed_signal": rec_np}
+    fake_np = np.asarray(fake_signal.detach().cpu().tolist(), dtype=np.float32)[:, 0, :]
+    output_signals = {"fake_signal": fake_np}
 
     torch.save(
         netDiff.state_dict(),

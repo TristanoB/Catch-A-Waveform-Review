@@ -118,17 +118,24 @@ class AudioGenerator(object):
             frame_idcs.append(range(hole[0], hole[1]))
             win_size = int((hole[1] - hole[0] + 1) / 2)
             window_size.append(win_size - (1 - win_size % 2))
-        stitched_signal = stitch_signals(stitched_signal, reconstructed_signal.squeeze().cpu().numpy(),
-                                         frame_idcs, window_size=window_size)
+        stitched_signal = stitch_signals(
+            stitched_signal,
+            np.asarray(reconstructed_signal.squeeze().cpu().tolist(), dtype=np.float32),
+            frame_idcs,
+            window_size=window_size,
+        )
         write_signal(os.path.join(self.params.output_folder, 'GeneratedSignals', 'inpainted'), stitched_signal,
                      self.params.Fs)
 
     def extend(self, condition, filt_file=None):
         conditioned_signal = self.condition(condition, False)
-        stitched_signal = time_freq_stitch_by_fft(condition['condition_signal'].squeeze().cpu().numpy(),
-                                                  conditioned_signal.squeeze().cpu().numpy(),
-                                                  condition['condition_fs'],
-                                                  self.params.Fs, filt_file)
+        stitched_signal = time_freq_stitch_by_fft(
+            np.asarray(condition['condition_signal'].squeeze().cpu().tolist(), dtype=np.float32),
+            np.asarray(conditioned_signal.squeeze().cpu().tolist(), dtype=np.float32),
+            condition['condition_fs'],
+            self.params.Fs,
+            filt_file,
+        )
         output_file = os.path.join(self.output_folder, 'GeneratedSignals',
                                    condition['name'] + '_extended')
         write_signal(output_file, stitched_signal, self.params.Fs)

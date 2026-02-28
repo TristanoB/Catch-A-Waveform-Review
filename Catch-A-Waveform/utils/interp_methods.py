@@ -63,3 +63,6 @@ def linear(x):
 def box(x):
     fw, to_dtype, eps = set_framework_dependencies(x)
     return to_dtype((-1 <= x) & (x < 0)) + to_dtype((0 <= x) & (x <= 1))
+
+# Alias for clarity: bicubic == cubic kernel above
+bicubic = cubic

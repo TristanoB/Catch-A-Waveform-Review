@@ -3,21 +3,37 @@ import numpy as np
 
 
 def stft(sig, n_fft, hop_length, window_size):
-    if sig.device.type == "mps" : 
+    # Guard against tiny inputs (very short clips / heavy downsampling) where
+    # the requested FFT/window would be larger than the signal and trigger
+    # padding errors inside torch.stft.
+    sig_len = sig.shape[-1]
+    n_fft = min(n_fft, sig_len)
+    window_size = min(window_size, n_fft)
+    hop_length = min(hop_length, max(1, window_size // 2))
+
+    window = torch.hann_window(window_size, device="cpu" if sig.device.type == "mps" else sig.device)
+
+    if sig.device.type == "mps":
         sig_cpu = sig.cpu()
-        window = torch.hann_window(window_size, device="cpu")
         s = torch.stft(
             sig_cpu,
             n_fft,
             hop_length,
             win_length=window_size,
             window=window,
-            return_complex=False
+            return_complex=False,
+            center=True,
+        ).to(sig.device)
+    else:
+        s = torch.stft(
+            sig,
+            n_fft,
+            hop_length,
+            win_length=window_size,
+            window=window,
+            return_complex=False,
+            center=True,
         )
-        s = s.to(sig.device)
-    else : 
-        s = torch.stft(sig, n_fft, hop_length, win_length=window_size,
-                       window=torch.hann_window(window_size, device=sig.device), return_complex=False)
     return s
 
 

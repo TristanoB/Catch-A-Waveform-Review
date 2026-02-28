@@ -1,4 +1,19 @@
 import os
+import sys
+
+# Ensure libsndfile can be located on macOS/Homebrew setups where the library
+# lives in /opt/homebrew/lib and is not on the default dyld search path.
+if sys.platform == "darwin":
+    homebrew_lib = "/opt/homebrew/lib"
+    if os.path.isdir(homebrew_lib):
+        for var in ("DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"):
+            current = os.environ.get(var, "")
+            paths = current.split(os.pathsep) if current else []
+            if homebrew_lib not in paths:
+                os.environ[var] = os.pathsep.join(
+                    [p for p in paths if p] + [homebrew_lib]
+                )
+
 import numpy as np
 import soundfile as sf
 import glob
@@ -359,7 +374,11 @@ def draw_signal(
         cur_sig = netG((noise_signal + prev_sig).detach(), prev_sig)
 
         if output_all_scales:
-            signals_all_scales.append(torch.squeeze(cur_sig).detach().cpu().numpy())
+            signals_all_scales.append(
+                np.asarray(
+                    torch.squeeze(cur_sig).detach().cpu().tolist(), dtype=np.float32
+                )
+            )
 
         # Upsample for next scale
         if scale_idx < len(fs_list) - 1:
@@ -401,24 +420,36 @@ def draw_signal(
 
 
 def build_diffusion_schedule(params, device):
+    # MPS lacks some reduction ops (e.g., cumprod). Build schedule on CPU and move back.
+    work_device = torch.device("cpu") if device.type == "mps" else device
     T = params.diffusion_steps
     if params.diffusion_beta_schedule == "cosine":
         s = 0.008
         steps = T + 1
-        x = torch.linspace(0, T, steps, device=device)
+        x = torch.linspace(0, T, steps, device=work_device)
         alphas_cumprod = torch.cos(((x / T + s) / (1 + s)) * math.pi / 2) ** 2
         alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
         betas = betas.clamp(1e-5, 0.999)
     else:
         betas = torch.linspace(
-            params.diffusion_beta_start, params.diffusion_beta_end, T, device=device
+            params.diffusion_beta_start,
+            params.diffusion_beta_end,
+            T,
+            device=work_device,
         )
     alphas = 1.0 - betas
     alphas_cumprod = torch.cumprod(alphas, dim=0)
     alphas_cumprod_prev = torch.cat(
-        [torch.ones(1, device=device), alphas_cumprod[:-1]], dim=0
+        [torch.ones(1, device=work_device), alphas_cumprod[:-1]], dim=0
     )
+
+    if work_device != device:
+        betas = betas.to(device)
+        alphas = alphas.to(device)
+        alphas_cumprod = alphas_cumprod.to(device)
+        alphas_cumprod_prev = alphas_cumprod_prev.to(device)
+
     return betas, alphas, alphas_cumprod, alphas_cumprod_prev
 
 
@@ -475,7 +506,10 @@ def draw_signal_diffusion(
                 + torch.sqrt(1 - alpha_bar_prev) * eps_pred
             )
             if t > 0:
-                noise = torch.randn_like(x)
+                if getattr(params, "deterministic_sampling", False):
+                    noise = torch.zeros_like(x)
+                else:
+                    noise = torch.randn_like(x) * params.sampling_noise_scale
                 var = betas[t] * (1 - alpha_bar_prev) / (1 - alpha_bar)
                 x = mean + torch.sqrt(var) * noise
             else:
@@ -486,7 +520,9 @@ def draw_signal_diffusion(
         else:
             x_out = x
 
-        signals_all_scales.append(torch.squeeze(x_out).detach().cpu().numpy())
+        signals_all_scales.append(
+            np.asarray(torch.squeeze(x_out).detach().cpu().tolist(), dtype=np.float32)
+        )
         prev_sig = x_out.detach()
 
     if output_all_scales:
@@ -556,6 +592,101 @@ def params_from_log(path, gpu_num=0):
     params.fs_list = [int(i) for i in params.fs_list]
     params.inputs_lengths = [int(s) for s in params.inputs_lengths]
     return params
+
+
+def save_debug_plots(real_path, fake_path, out_dir, sr=None):
+    """
+    Save spectrograms (real/fake), LSD-vs-frequency curve, PSD and spectral coherence.
+    Best-effort: silently skip if matplotlib/librosa/scipy are unavailable.
+    """
+    try:
+        import matplotlib.pyplot as plt  # type: ignore
+        import librosa
+        import librosa.display  # noqa: F401
+        import numpy as np
+        from scipy import signal
+        if not hasattr(np, "float"):  # compat for numpy>=2.0
+            np.float = float  # type: ignore[attr-defined]
+    except Exception as exc:
+        print(f"[save_debug_plots] Skipped (missing deps): {exc}")
+        return
+
+    os.makedirs(out_dir, exist_ok=True)
+    real, sr_r = librosa.load(real_path, sr=sr, mono=True)
+    fake, sr_f = librosa.load(fake_path, sr=sr_r, mono=True)
+    if sr_f != sr_r:
+        fake = librosa.resample(fake, orig_sr=sr_f, target_sr=sr_r)
+    n = min(len(real), len(fake))
+    real = real[:n]
+    fake = fake[:n]
+    eps = 1e-12
+
+    # Spectrogram helper
+    def _save_spec(sig, name):
+        S = np.abs(librosa.stft(sig, n_fft=2048, hop_length=512)) ** 2
+        Sdb = librosa.power_to_db(S, ref=np.max)
+        plt.figure(figsize=(8, 4))
+        librosa.display.specshow(Sdb, sr=sr_r, hop_length=512, x_axis="time", y_axis="hz")
+        plt.colorbar(format="%+2.0f dB")
+        plt.title(name)
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, f"{name.replace(' ', '_').lower()}.png"), dpi=120)
+        plt.close()
+
+    _save_spec(real, "Real Spectrogram")
+    _save_spec(fake, "Fake Spectrogram")
+
+    # LSD curve vs frequency (mean over time of log-spectral distance)
+    def _lsd_curve(a, b):
+        A = np.abs(librosa.stft(a, n_fft=2048, hop_length=512)) ** 2 + eps
+        B = np.abs(librosa.stft(b, n_fft=2048, hop_length=512)) ** 2 + eps
+        min_frames = min(A.shape[1], B.shape[1])
+        A = A[:, :min_frames]
+        B = B[:, :min_frames]
+        diff = (np.log(A) - np.log(B)) ** 2
+        curve = np.sqrt(diff.mean(axis=1))
+        freqs = np.linspace(0, sr_r / 2, curve.shape[0])
+        return freqs, curve
+
+    freqs_lsd, lsd_curve = _lsd_curve(real, fake)
+    plt.figure(figsize=(8, 3))
+    plt.plot(freqs_lsd, lsd_curve)
+    plt.title("LSD vs Frequency")
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("LSD")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "lsd_curve.png"), dpi=120)
+    plt.close()
+
+    # PSD and coherence
+    f_psd, Pxx = signal.welch(real.astype(np.float64), sr_r, nperseg=2048)
+    _, Pyy = signal.welch(fake.astype(np.float64), sr_r, nperseg=2048)
+    f_coh, coh = signal.coherence(real.astype(np.float64), fake.astype(np.float64), sr_r, nperseg=2048)
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(f_psd, 10 * np.log10(Pxx + eps), label="Real")
+    plt.plot(f_psd, 10 * np.log10(Pyy + eps), label="Fake")
+    plt.title("PSD (Welch)")
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Power (dB)")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "psd.png"), dpi=120)
+    plt.close()
+
+    plt.figure(figsize=(8, 3))
+    plt.plot(f_coh, np.maximum(coh, 1e-6))
+    plt.title("Spectral Coherence")
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Coherence")
+    plt.yscale("log")
+    plt.ylim(1e-6, 1.05)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "coherence.png"), dpi=120)
+    plt.close()
 
 
 def noise_amp_list_from_log(path):

@@ -84,20 +84,6 @@ def weights_init(m):
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
 
-# --- diffusion model --- 
-
-class DiffusionModel(nn.Module): # pourquoi faire dépendre de nn.Module ici ? 
-    def __init__(self, params) : 
-        super(DiffusionModel,self).__init__() # pourquoi ici on fait le super(DiffusionModel)
-        # define the pertinent blocks 
-        self.Fs = params.current_fs 
-        for i in range(params.num_layers - 2) : 
-            # add layer 
-            pass 
-
-
-    def forward() :  
-        pass 
 
 
 

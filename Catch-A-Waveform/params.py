@@ -15,27 +15,27 @@ class Params(object):
         self.manual_random_seed = -1  # -1 for no setting
         self.plot_losses = False
         self.init_sample_rate = 16000
-        self.fs_list = [
-            320,
-            400,
-            500,
-            640,
-            800,
-            1000,
-            1280,
-            1600,
-            2000,
-            2500,
-            4000,
-            8000,
-            10000,
-            12000,
-            14400,
-            16000,
-        ]
-        # self.fs_list = [4000, 8000, 16000]
+        # self.fs_list = [
+        #     320,
+        #     400,
+        #     500,
+        #     640,
+        #     800,
+        #     1000,
+        #     1280,
+        #     1600,
+        #     2000,
+        #     2500,
+        #     4000,
+        #     8000,
+        #     10000,
+        #     12000,
+        #     14400,
+        #     16000,
+        # ]
+        self.fs_list = [400,2000,4000]
         self.run_mode = "normal"
-        self.model_type = "gan"  # 'gan' (original) or 'diffusion'
+        self.model_type = "diffusion"  # 'gan' (original) or 'diffusion'
         self.speech = False
         self.set_first_scale_by_energy = True
         self.add_cond_noise = True
@@ -53,7 +53,7 @@ class Params(object):
         # Losses Parameters #
         #####################
         self.lambda_grad = 0.01
-        self.alpha1 = 10
+        self.alpha1 = 0
         self.alpha2 = 1e-4
         self.multispec_loss_n_fft = (2048, 1024, 512)
         self.multispec_loss_hop_length = (240, 120, 50)
@@ -75,6 +75,14 @@ class Params(object):
         self.diffusion_beta_end = 2e-2
         self.diffusion_beta_schedule = "linear"  # linear | cosine
         self.diffusion_clip_denoised = True
+        self.sampling_noise_scale = 1.0  # scale on sampling noise (0 => deterministic)
+        self.deterministic_sampling = False
+        # Conditioning strategy for diffusion: True = teacher forcing on real coarse scale
+        self.teacher_force_condition = True
+        # Debug: save conditioning signal used at each scale (unpadded)
+        self.save_prev_cond = True
+        # Debug: save a maximally noised forward sample (per scale) for inspection
+        self.save_noisy_debug = True
 
         ####################
         # Model Parameters #
@@ -87,7 +95,7 @@ class Params(object):
         ####################
         # Interpolation Parameters #
         ####################
-        self.interp_method = "lanczos3"
+        self.interp_method = "cubic"
 
     def set_device(self):
         # choose device in order: explicit override -> available mps -> cuda -> cpu

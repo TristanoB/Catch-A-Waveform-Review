@@ -8,6 +8,22 @@ import torch
 
 
 FIG_WIDTH = 1200
+CLIP_LO = 1  # percentile low for outlier clipping in plots
+CLIP_HI = 99  # percentile high for outlier clipping in plots
+
+
+def _clip_series(arr, q_low=CLIP_LO, q_high=CLIP_HI):
+    """Clip extreme outliers for visualization only (does not modify training logs)."""
+    lo = np.nanpercentile(arr, q_low)
+    hi = np.nanpercentile(arr, q_high)
+    return np.clip(arr, lo, hi)
+
+
+def _clip_named(name, arr):
+    # Tighten clipping for diffusion eps/rec losses to better see trends when spikes occur.
+    if name in ("v_eps_loss", "v_rec_loss"):
+        return _clip_series(arr, q_low=5, q_high=95)
+    return _clip_series(arr)
 
 
 def plot(x, y=None, labels=None):
@@ -32,20 +48,68 @@ def plot(x, y=None, labels=None):
 
 def plot_losses(params, loss_vectors):
     # Plot losses in each scale
-    output_file(os.path.join(params.output_folder, '../figures', 'losses.html'))
-    p_vec = []
+    figures_dir = os.path.join(params.output_folder, "..", "figures")
+    os.makedirs(figures_dir, exist_ok=True)
+    run_id = os.path.basename(params.output_folder.rstrip("/"))
+    output_file(os.path.join(figures_dir, f"{run_id}_losses.html"))
+    p_vec: list = []
+    eps_curves = []
     for losses, fs in zip(loss_vectors, params.fs_list):
-        p = figure(title='Losses @ %dHz' % fs)
-        p.title.align = "center"
-        p.width = FIG_WIDTH
-        p.xaxis.axis_label = 'Epoch#'
-        p.line(range(params.num_epochs), -losses['v_err_real'], legend_label='D(real)', color=Category20[20][0])
-        p.line(range(params.num_epochs), losses['v_err_fake'], legend_label='D(fake)', color=Category20[20][1])
-        p.line(range(params.num_epochs), losses['v_gp'], legend_label='Gradient Penalty', color=Category20[20][2])
-        p.line(range(params.num_epochs), losses['v_rec_loss'], legend_label='Rec. Loss', color=Category20[20][3])
-        p.legend.click_policy = "hide"
-        p_vec.append(p)
-    show(column(p_vec))
+        figs = []
+        color_idx = 0
+
+        # Adversarial losses figure (if any)
+        has_adv = any(k in losses for k in ("v_err_real", "v_err_fake", "v_gp"))
+        if has_adv:
+            padv = figure(title='Losses @ %dHz (adv)' % fs, width=FIG_WIDTH)
+            padv.title.align = "center"
+            padv.xaxis.axis_label = 'Epoch#'
+            if "v_err_real" in losses:
+                series = _clip_named("v_err_real", -losses["v_err_real"])
+                padv.line(range(params.num_epochs), series, legend_label="D(real)", color=Category20[20][color_idx]); color_idx += 1
+            if "v_err_fake" in losses:
+                series = _clip_named("v_err_fake", losses["v_err_fake"])
+                padv.line(range(params.num_epochs), series, legend_label="D(fake)", color=Category20[20][color_idx]); color_idx += 1
+            if "v_gp" in losses:
+                series = _clip_named("v_gp", losses["v_gp"])
+                padv.line(range(params.num_epochs), series, legend_label="Gradient Penalty", color=Category20[20][color_idx]); color_idx += 1
+            padv.legend.click_policy = "hide"
+            figs.append(padv)
+
+        # Eps/Rec figure (separate axis and scale)
+        has_eps = "v_eps_loss" in losses
+        has_rec = "v_rec_loss" in losses
+        if has_eps or has_rec:
+            peps = figure(title='Losses @ %dHz (eps/rec)' % fs, width=FIG_WIDTH)
+            peps.title.align = "center"
+            peps.xaxis.axis_label = 'Epoch#'
+            if has_eps:
+                series = _clip_named("v_eps_loss", losses["v_eps_loss"])
+                peps.line(range(params.num_epochs), series, legend_label="Eps Loss", color=Category20[20][color_idx]); color_idx += 1
+                eps_curves.append((fs, series))
+            if has_rec:
+                series = _clip_named("v_rec_loss", losses["v_rec_loss"])
+                peps.line(range(params.num_epochs), series, legend_label="Rec. Loss", color=Category20[20][color_idx]); color_idx += 1
+            peps.legend.click_policy = "hide"
+            figs.append(peps)
+
+        if figs:
+            p_vec.append(column(figs))
+    # Combined eps loss plot (all scales), appended once
+    if eps_curves:
+        p_all = figure(title="Eps Loss (all scales)", width=FIG_WIDTH)
+        p_all.xaxis.axis_label = "Epoch#"
+        for idx, (fs, series) in enumerate(eps_curves):
+            p_all.line(
+                range(params.num_epochs),
+                series,
+                legend_label=f"Eps @ {fs}Hz",
+                color=Category20[20][idx % 20],
+            )
+        p_all.legend.click_policy = "hide"
+        p_vec.append(p_all)
+    if p_vec:
+        show(column(p_vec))
 
 
 def plot_signal_time_freq(*args, Fs=16000, labels=None):
