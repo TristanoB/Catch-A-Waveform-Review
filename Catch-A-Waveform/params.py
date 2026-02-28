@@ -96,6 +96,7 @@ class Params(object):
         # Interpolation Parameters #
         ####################
         self.interp_method = "cubic"
+        self.interp_method = "cubic"
 
     def set_device(self):
         # choose device in order: explicit override -> available mps -> cuda -> cpu
