@@ -78,6 +78,8 @@ def resize(
     # when using pytorch, we need to know what is the input tensor device
     if fw is torch:
         device = input.device
+    else:
+        device = None
 
     # output begins identical to input and changes with each iteration
     output = input

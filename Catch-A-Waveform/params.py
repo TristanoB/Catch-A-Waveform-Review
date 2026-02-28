@@ -14,7 +14,7 @@ class Params(object):
         self.plot_signals = False
         self.manual_random_seed = -1  # -1 for no setting
         self.plot_losses = False
-        self.init_sample_rate = 16000
+        self.init_sample_rate = 44100
         self.fs_list = [
             320,
             400,
@@ -32,6 +32,11 @@ class Params(object):
             12000,
             14400,
             16000,
+            19200,
+            24000,
+            28800,
+            34600,
+            44100,
         ]
         # self.fs_list = [4000, 8000, 16000]
         self.run_mode = "normal"
@@ -87,7 +92,7 @@ class Params(object):
         ####################
         # Interpolation Parameters #
         ####################
-        self.interp_method = "lanczos3"
+        self.interp_method = "cubic"
 
     def set_device(self):
         # choose device in order: explicit override -> available mps -> cuda -> cpu

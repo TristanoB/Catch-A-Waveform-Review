@@ -163,6 +163,12 @@ def create_input_signals(params, input_signal, Fs):
     n_scales = len(params.scales)
     set_first_scale = False
     rf = calc_receptive_field(params.filter_size, params.dilation_factors)
+    print(f"------- Creating the signal with n_scales: {n_scales}")
+    print("\n")
+    print(f"Here are the scales in params:", params.scales)
+    print("\n")
+    print(f"Fs is: {Fs}")
+    print("\n")
     for k in range(n_scales):
         downsample = params.scales[k]
         fs = int(Fs / downsample)
